@@ -1,0 +1,44 @@
+# Compiled object files
+*.o
+*.obj
+
+# Compiled binary files
+*.exe
+*.out
+*.app
+
+# Debug files
+*.dSYM
+*.pdb
+
+# Build directories
+/build/
+bin/
+obj/
+
+# Temporary files
+*.tmp
+*.temp
+
+# IDE-specific files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# CMake files
+CMakeFiles/
+CMakeCache.txt
+*.cmake
+
+# Other miscellaneous files
+*.log
+*.class
+*.jar
+
+# check points and outputs
+*.ply
+*.bin
+checkpoints/
+point_cloud/
+output/
