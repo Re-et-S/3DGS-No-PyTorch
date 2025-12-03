@@ -8,6 +8,7 @@
 #include "densification.cuh"
 #include <cstdio> // For printf
 #include <iostream>
+#include <cub/cub.cuh>
 
 namespace cg = cooperative_groups;
 
@@ -45,7 +46,7 @@ __global__ void init_curand_kernel(curandState* state, int n, unsigned long long
 
 __global__ void accumulate_gradients_kernel(
     const int P,
-    const glm::vec2* dL_dmean2D, // From backward pass
+    const float2* dL_dmean2D, // From backward pass
     const int* radii,            // From forward pass (visibility check)
     float* accum,                // The accumulation buffer
     int* denom)                  // The counter
@@ -56,8 +57,7 @@ __global__ void accumulate_gradients_kernel(
     // Only accumulate for visible Gaussians
     if (radii[idx] > 0) {
         // Calculate gradient magnitude
-        glm::vec2 grad = dL_dmean2D[idx];
-        float mag = glm::length(grad);
+        float mag = sqrtf((dL_dmean2D[idx].x * dL_dmean2D[idx].x) + (dL_dmean2D[idx].y * dL_dmean2D[idx].y));
 
         // Accumulate
         accum[idx] += mag;
@@ -65,6 +65,90 @@ __global__ void accumulate_gradients_kernel(
         
     }
 }
+
+// Helper Kernel: Compute per-Gaussian average gradient (accum / denom)
+// Output to a temporary buffer for reduction
+__global__ void normalize_gradients_kernel(
+    int P,
+    const float* accum,
+    const int* denom,
+    float* out_normalized) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= P) return;
+
+    int count = denom[idx];
+    if (count > 0) {
+        out_normalized[idx] = accum[idx] / count;
+    } else {
+        out_normalized[idx] = 0.0f;
+    }
+}
+
+GradientStats compute_gradient_stats(
+    int P,
+    const float* accum_max_pos_grad,
+    const int* denom,
+    void* temp_storage,
+    size_t& temp_storage_bytes) {
+    GradientStats stats = {0.0f, 0.0f};
+    if (P == 0) return stats;
+
+    // 1. Allocate Temporary "Normalized Gradient" Buffer
+    // Ideally this should be passed in or allocated from a scratch pool.
+    // For now, we malloc it, but in production use Trainer::geomBuffer etc.
+    float* d_norm_grads;
+    CUDA_CHECK(cudaMalloc(&d_norm_grads, P * sizeof(float)));
+
+    // 2. Run Normalization
+    int block = 256;
+    int grid = (P + block - 1) / block;
+    normalize_gradients_kernel<<<grid, block>>>(P, accum_max_pos_grad, denom, d_norm_grads);
+    CUDA_CHECK(cudaGetLastError());
+
+    // 3. Compute MAX using CUB
+    float* d_max_out;
+    float* d_sum_out;
+    CUDA_CHECK(cudaMalloc(&d_max_out, sizeof(float)));
+    CUDA_CHECK(cudaMalloc(&d_sum_out, sizeof(float)));
+
+    // Max Reduction
+    // --- QUERY SIZE ---
+    if (temp_storage == nullptr) {
+        size_t size_max = 0;
+        size_t size_sum = 0;
+        
+        cub::DeviceReduce::Max(nullptr, size_max, d_norm_grads, d_max_out, P);
+        cub::DeviceReduce::Sum(nullptr, size_sum, d_norm_grads, d_sum_out, P);
+        
+        // Return the larger requirement
+        temp_storage_bytes = (size_max > size_sum) ? size_max : size_sum;
+        
+        cudaFree(d_norm_grads); cudaFree(d_max_out); cudaFree(d_sum_out);
+        return stats; 
+    }
+    
+    // Run Max
+    cub::DeviceReduce::Max(temp_storage, temp_storage_bytes, d_norm_grads, d_max_out, P);
+    
+    // Run Sum (reuse temp storage if large enough, otherwise unsafe. 
+    // CUB usually needs same size for Max and Sum. Let's assume passed buffer is big enough.)
+    cub::DeviceReduce::Sum(temp_storage, temp_storage_bytes, d_norm_grads, d_sum_out, P);
+
+    // 4. Retrieve Results
+    float h_sum = 0.0f;
+    CUDA_CHECK(cudaMemcpy(&stats.max_grad, d_max_out, sizeof(float), cudaMemcpyDeviceToHost));
+    CUDA_CHECK(cudaMemcpy(&h_sum, d_sum_out, sizeof(float), cudaMemcpyDeviceToHost));
+    
+    stats.mean_grad = h_sum / P;
+
+    // 5. Cleanup
+    cudaFree(d_norm_grads);
+    cudaFree(d_max_out);
+    cudaFree(d_sum_out);
+
+    return stats;
+}
+
 __global__ void reset_opacity_kernel(
     const int P,
     float* opacities               
@@ -347,11 +431,6 @@ __global__ void densify_kernel(
         new_d.points[3*dest2 + 1] -= v.y;
         new_d.points[3*dest2 + 2] -= v.z;
 
-        // DEBUG
-        if (idx == 0) {
-            printf("Original Scale: %f, New Scale: %f\n", old_d.scales[idx].x, new_d.scales[dest1].x);
-            printf("Split Vector: %f %f %f\n", v.x, v.y, v.z);
-        }
     }
     
     // --- CLONE LOGIC (Using Gradient) ---
@@ -400,7 +479,7 @@ void accumulate_gradients(
     int grid_size = (P + block_size - 1) / block_size;
     accumulate_gradients_kernel<<<grid_size, block_size>>>(
         P, 
-        (const glm::vec2*)dL_dmean2D, 
+        dL_dmean2D, 
         radii, 
         accum, 
         denom

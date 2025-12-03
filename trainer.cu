@@ -1,6 +1,7 @@
 #include "trainer.cuh"
 #include "rasterizer.cuh"
 #include "densification.cuh"
+#include "ssim.cuh"
 #include <cub/cub.cuh>       // Required for DeviceScan
 #include <glm/gtc/type_ptr.hpp>
 
@@ -27,6 +28,52 @@ static __global__ void compute_loss_and_gradient(
         pixel_loss += 0.5f * diff * diff;
     }
     atomicAdd(d_loss_output, pixel_loss);
+}
+
+static __global__ void compute_combined_loss_and_gradient(
+    const float* rendered_image, // Planar [C][H][W]
+    const float* gt_image,       // Planar [C][H][W]
+    const float* ssim_grads,     // Planar [C][H][W] (From SSIM Backward)
+    const float* ssim_map,       // Planar [C][H][W] (From SSIM Forward)
+    double* d_loss_output,       // Scalar Accumulator
+    float* dL_dpixels,           // Output: Combined Gradient
+    float lambda,                // 0.2
+    int W, int H)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    int num_pixels = W * H;
+    if (idx >= num_pixels) return;
+
+    float pixel_loss_sum = 0.0f;
+    float ssim_loss_sum = 0.0f;
+
+    for (int c = 0; c < 3; c++) {
+        int p_idx = c * num_pixels + idx;
+        
+        // 1. Pixel Difference (L2 in your case, typically L1 in paper)
+        float diff = rendered_image[p_idx] - gt_image[p_idx];
+        
+        // 2. SSIM Contribution
+        // We want to minimize (1 - SSIM), so gradient is -d(SSIM)
+        float ssim_g = ssim_grads[p_idx]; 
+        
+        // L1 Loss = |render - gt|
+        pixel_loss_sum += fabsf(diff);
+        
+        // d(L1)/dx = sign(diff)
+        // If diff > 0, grad is 1. If diff < 0, grad is -1.
+        float l1_grad = (diff > 0.0f) ? 1.0f : -1.0f;
+        
+        // Combine gradients: (1-lambda)*L1 + lambda*(1-SSIM)
+        dL_dpixels[p_idx] = (1.0f - lambda) * l1_grad - lambda * ssim_g;
+        
+        ssim_loss_sum += (1.0f - ssim_map[p_idx]);
+    }
+
+    // Weighted sum of scalar losses
+    float total_local_loss = (1.0f - lambda) * pixel_loss_sum + lambda * ssim_loss_sum;
+    
+    atomicAdd(d_loss_output, total_local_loss);
 }
 
 double Trainer::train_step(const TrainingView& view, const CudaBuffer<float>& d_gt_image, int active_sh_degree) {
@@ -63,7 +110,7 @@ double Trainer::train_step(const TrainingView& view, const CudaBuffer<float>& d_
             W, H,
             scene.d_points.get(),
             scene.d_dc.get(),
-            scene.d_shs.get(), // Make sure to handle DC/SHS split here!
+            scene.d_shs.get(),
             nullptr, // colors_precomp
             scene.d_opacities.get(),
             scene.d_scales.get(),
@@ -84,9 +131,42 @@ double Trainer::train_step(const TrainingView& view, const CudaBuffer<float>& d_
             false // debug
         );
 
+        float lambda_dssim = 0.2f;
+
+        fusedssim_forward(H, W, 3, 0.01f * 0.01f, 0.03f * 0.03f,
+                    d_out_color.get(), // Rendered Image
+                    d_gt_image.get(),  // Ground Truth
+                    ssim_data.d_ssim_map.get(), ssim_data.d_dm_dmu1.get(),
+                    ssim_data.d_dm_dsigma1_sq.get(),
+                    ssim_data.d_dm_dsigma12.get());
+
+        // float grad_scale = 1.0f / (W * H * 3.0f); // Normalize by total elements
+        float grad_scale = 1.0f;
+        
+        fusedssim_backward(
+            H, W, 3, 0.01f*0.01f, 0.03f*0.03f,
+            d_out_color.get(),
+            d_gt_image.get(),
+            grad_scale,
+            ssim_data.d_ssim_grads.get(), // Output Gradients
+            ssim_data.d_dm_dmu1.get(),
+            ssim_data.d_dm_dsigma1_sq.get(),
+            ssim_data.d_dm_dsigma12.get()
+        );
+        
         // 5. Loss
-        compute_loss_and_gradient<<<(W * H + 255) / 256, 256>>>(
-        d_out_color.get(), d_gt_image.get(), d_loss.get(), dL_dpixels.get(), W, H
+        // compute_loss_and_gradient<<<(W * H + 255) / 256, 256>>>(
+        // d_out_color.get(), d_gt_image.get(), d_loss.get(), dL_dpixels.get(), W, H
+        // );
+        compute_combined_loss_and_gradient<<<(W * H + 255) / 256, 256>>>(
+            d_out_color.get(), 
+            d_gt_image.get(), 
+            ssim_data.d_ssim_grads.get(), 
+            ssim_data.d_ssim_map.get(),   
+            d_loss.get(), 
+            dL_dpixels.get(),             
+            lambda_dssim, 
+            W, H
         );
         
         double h_loss = 0.0f;
@@ -155,7 +235,7 @@ void Trainer::densify_and_prune(float grad_threshold, float scene_extent, curand
     float min_opacity = 0.01f;
     float percent_dense = 0.0003f;
     int max_screen_size_threshold = 3000;
-
+    
     // 1. Mark Candidates
     CudaBuffer<int> d_scan_counts(P); 
 
@@ -175,6 +255,19 @@ void Trainer::densify_and_prune(float grad_threshold, float scene_extent, curand
         min_opacity
     );
 
+    size_t temp_bytes = 0;
+    compute_gradient_stats(P, optimizer.accum_max_pos_grad.get(), optimizer.denom.get(), nullptr, temp_bytes); // query size
+
+    GradientStats stats = compute_gradient_stats(
+        P, 
+        optimizer.accum_max_pos_grad.get(), 
+        optimizer.denom.get(), 
+        binningBuffer.get(), 
+        temp_bytes);
+
+    printf("[Gradient Stats] Max: %.6f | Mean: %.6f | Target Threshold: %.6f\n", 
+       stats.max_grad, stats.mean_grad, grad_threshold);
+    
     // 2. Scan (Inclusive Sum) to find new positions
     CudaBuffer<int> d_scan_offsets(P);
     

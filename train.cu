@@ -4,6 +4,7 @@
 #include "optimizer.cuh"
 #include "densification.cuh"
 #include "checkpoint.cuh"
+#include "ssim.cuh"
 #include "ImageIO.h"
 #include "plyIO.h"
 #include <random>
@@ -37,7 +38,8 @@ int main(int argc, char** argv) {
                   h_rotations,
                   h_dc);
     GaussianScene scene(D, h_means, h_scales, h_rotations, h_opacities, h_dc, h_shs);
-    GaussianGrads grads(P, D); 
+    GaussianGrads grads(P, D);
+    
     // Calculate scene extent for densification thresholds
     float scene_extent = compute_scene_extent(h_points);
     printf("Scene Extent: %f\n", scene_extent);
@@ -57,12 +59,14 @@ int main(int argc, char** argv) {
     auto [max_w, max_h] = dataset.getMaxDimensions();
     const int num_pixels = max_w*max_h;
 
+    SSIMData ssim_data(max_w, max_h, 3);
+    
     std::vector<float> h_gt_image(num_pixels * 3);
     CudaBuffer<float> d_gt_image(num_pixels * 3);
     d_gt_image.to_device(h_gt_image);
 
     // Pass the objects and the config to the Trainer
-    Trainer trainer(scene, grads, optimizer, max_w, max_h);
+    Trainer trainer(scene, grads, optimizer, ssim_data, max_w, max_h);
 
     std::mt19937 rng(42);
     std::uniform_int_distribution<size_t> dist(0, dataset.size() - 1);
@@ -70,7 +74,7 @@ int main(int argc, char** argv) {
     std::vector<float> h_render(num_pixels * 3);
 
     // Training Constants
-    const float densify_grad_threshold = 25.0f;
+    const float densify_grad_threshold = 150.0f; // pixel unit
     const int total_iterations = 10000; // 
     const int warmup_steps = 1000;
     const int sh_increase_interval = 1000;
@@ -141,7 +145,7 @@ int main(int argc, char** argv) {
             if (i < total_iterations - 1000) {
                 if (scene.count * 2 > max_capacity) {
                     printf("WARNING: RNG buffer limit. Skipping densification.\n");
-                    // TODO resize here
+                    // TODO prune only and don't clone
                 } else {
                     trainer.densify_and_prune(
                         densify_grad_threshold, 

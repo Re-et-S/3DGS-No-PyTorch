@@ -169,7 +169,7 @@ struct PointCloudAdapter {
     bool kdtree_get_bbox(BBOX& /*bb*/) const { return false; } // Not required
 };
 
-//  `GaussianScene` for all gradient buffers
+//  GaussianScene for all gradient buffers
 struct GaussianGrads {
     size_t count;
     const int max_sh_coeffs;

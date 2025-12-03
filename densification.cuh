@@ -34,6 +34,11 @@ struct GaussianData {
 
 };
 
+struct GradientStats {
+    float max_grad;
+    float mean_grad;
+};
+
 void accumulate_gradients(
     int P,
     const float2* dL_dmean2D,
@@ -74,3 +79,11 @@ void densify(
 void init_random_states(curandState* states, int n, unsigned long long seed); 
 float compute_scene_extent(const std::vector<glm::vec3>& points);
 void print_densification_stats(int P, const int* decisions);
+
+GradientStats compute_gradient_stats(
+    int P,
+    const float* accum_max_pos_grad,
+    const int* denom,
+    void* temp_storage,        // Pointer to existing scratch buffer
+    size_t& temp_storage_bytes // In/Out size management
+);
