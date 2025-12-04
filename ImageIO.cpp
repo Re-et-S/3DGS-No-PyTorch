@@ -1,25 +1,45 @@
 #include "ImageIO.h"
-#include <opencv2/opencv.hpp>
 #include <stdexcept>
 #include <iostream>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#include "stb_image_write.h"
 
 /**
  * @brief Loads the ground-truth image and converts it to planar float format.
  *
- * OpenCV loads images as interleaved (BGR, BGR, ...) uint8_t.
- * The 3DGS pipeline requires planar (RRR...GGG...BBB...) float [0, 1].
- * This function handles that conversion.
+ * REPLACED OpenCV with stb_image.
+ * stb_image loads as R, G, B (interleaved).
+ * We convert to Planar RRR...GGG...BBB...
  */
 std::vector<float> load_image_planar(const std::string& path, int& W, int& H)
 {
-    cv::Mat img = cv::imread(path, cv::IMREAD_COLOR);
-    if (img.empty()) {
-        throw std::runtime_error("Error: Could not load ground-truth image: " + path);
+    int img_w, img_h, img_channels;
+    
+    // Force loading as 3 channels (RGB), even if it's RGBA or Grayscale
+    unsigned char* data = stbi_load(path.c_str(), &img_w, &img_h, &img_channels, 3);
+
+    if (!data) {
+        throw std::runtime_error("Error: Could not load image: " + path + " \nReason: " + stbi_failure_reason());
     }
-    if (img.cols != W || img.rows != H) {
-        std::cout << "Notice: Image resolution mismatch. Adapting to file dimensions." << std::endl;
-        W = img.cols;
-        H = img.rows;
+
+    // If W and H are provided (non-zero), enforce dimensions. 
+    // If they are passed as 0 or -1, we could adopt the image dims, 
+    // but here we stick to your strict check logic.
+    if (W > 0 && H > 0) {
+        if (img_w != W || img_h != H) {
+            stbi_image_free(data);
+            throw std::runtime_error("Error: Image dimensions mismatch. Expected " + 
+                                     std::to_string(W) + "x" + std::to_string(H) + 
+                                     " but got " + std::to_string(img_w) + "x" + std::to_string(img_h));
+        }
+    } else {
+        // Update output dimensions if they weren't strictly enforced
+        W = img_w;
+        H = img_h;
     }
 
     std::vector<float> h_gt_image(W * H * 3);
@@ -27,39 +47,89 @@ std::vector<float> load_image_planar(const std::string& path, int& W, int& H)
 
     for (int y = 0; y < H; ++y) {
         for (int x = 0; x < W; ++x) {
-            cv::Vec3b bgr = img.at<cv::Vec3b>(y, x); // BGR
             int px_idx = y * W + x;
+            int src_idx = px_idx * 3; // 3 bytes per pixel in source
 
-            // Normalize and write to planar buffers
-            h_gt_image[0 * num_pixels + px_idx] = (float)bgr[2] / 255.0f; // R
-            h_gt_image[1 * num_pixels + px_idx] = (float)bgr[1] / 255.0f; // G
-            h_gt_image[2 * num_pixels + px_idx] = (float)bgr[0] / 255.0f; // B
+            // stbi is RGB, so data[0] is R, data[1] is G, data[2] is B
+            unsigned char r = data[src_idx + 0];
+            unsigned char g = data[src_idx + 1];
+            unsigned char b = data[src_idx + 2];
+
+            // Normalize to [0, 1] and write to planar buffers
+            h_gt_image[0 * num_pixels + px_idx] = (float)r / 255.0f; 
+            h_gt_image[1 * num_pixels + px_idx] = (float)g / 255.0f; 
+            h_gt_image[2 * num_pixels + px_idx] = (float)b / 255.0f; 
         }
     }
+
+    stbi_image_free(data);
     return h_gt_image;
 }
 
-void save_image_ppm(const char* filename, const std::vector<float>& buffer, int width, int height) {
-    FILE* fp = fopen(filename, "w");
-    if (!fp) {
-        fprintf(stderr, "Error: Could not open %s\n", filename);
+/**
+ * @brief Saves a planar float buffer as a JPEG.
+ * * 1. Converts Planar Float (RRR...) -> Interleaved Byte (RGB...)
+ * 2. Writes using stb_image_write
+ * * @param quality JPEG quality (1-100), default usually around 90
+ */
+void save_image_jpg(const char* filename, const std::vector<float>& buffer, int width, int height, int quality) {
+    if (buffer.size() != width * height * 3) {
+        std::cerr << "Error: Buffer size mismatch in save_image_jpg" << std::endl;
         return;
     }
-    fprintf(fp, "P3\n%d %d\n255\n", width, height);
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            // Note the planar format (RRR...GGG...BBB...)
-            int r_idx = 0 * width * height + y * width + x;
-            int g_idx = 1 * width * height + y * width + x;
-            int b_idx = 2 * width * height + y * width + x;
-            int r = (int)(fmax(0.0f, fmin(1.0f, buffer[r_idx])) * 255.0f);
-            int g = (int)(fmax(0.0f, fmin(1.0f, buffer[g_idx])) * 255.0f);
-            int b = (int)(fmax(0.0f, fmin(1.0f, buffer[b_idx])) * 255.0f);
-            fprintf(fp, "%d %d %d ", r, g, b);
-        }
-        fprintf(fp, "\n");
+
+    // Allocate temporary buffer for Interleaved RGB (uint8)
+    std::vector<unsigned char> interleaved(width * height * 3);
+    int num_pixels = width * height;
+
+    for (int i = 0; i < num_pixels; ++i) {
+        // Read Planar Floats
+        float r_f = buffer[0 * num_pixels + i];
+        float g_f = buffer[1 * num_pixels + i];
+        float b_f = buffer[2 * num_pixels + i];
+
+        // Clamp [0, 1] -> [0, 255]
+        unsigned char r = (unsigned char)(std::max(0.0f, std::min(1.0f, r_f)) * 255.0f);
+        unsigned char g = (unsigned char)(std::max(0.0f, std::min(1.0f, g_f)) * 255.0f);
+        unsigned char b = (unsigned char)(std::max(0.0f, std::min(1.0f, b_f)) * 255.0f);
+
+        // Write Interleaved Bytes
+        interleaved[i * 3 + 0] = r;
+        interleaved[i * 3 + 1] = g;
+        interleaved[i * 3 + 2] = b;
     }
-    fclose(fp);
-    printf("Saved image to %s\n", filename);
+
+    // Write to disk
+    int success = stbi_write_jpg(filename, width, height, 3, interleaved.data(), quality);
+    
+    if (success) {
+        std::cout << "Saved image to " << filename << std::endl;
+    } else {
+        std::cerr << "Failed to save image to " << filename << std::endl;
+    }
 }
+
+// void save_image_ppm(const char* filename, const std::vector<float>& buffer, int width, int height) {
+//     FILE* fp = fopen(filename, "w");
+//     if (!fp) {
+//         fprintf(stderr, "Error: Could not open %s\n", filename);
+//         return;
+//     }
+//     fprintf(fp, "P3\n%d %d\n255\n", width, height);
+//     for (int y = 0; y < height; y++) {
+//         for (int x = 0; x < width; x++) {
+//             // Note the planar format (RRR...GGG...BBB...)
+//             int r_idx = 0 * width * height + y * width + x;
+//             int g_idx = 1 * width * height + y * width + x;
+//             int b_idx = 2 * width * height + y * width + x;
+//             int r = (int)(fmax(0.0f, fmin(1.0f, buffer[r_idx])) * 255.0f);
+//             int g = (int)(fmax(0.0f, fmin(1.0f, buffer[g_idx])) * 255.0f);
+//             int b = (int)(fmax(0.0f, fmin(1.0f, buffer[b_idx])) * 255.0f);
+//             fprintf(fp, "%d %d %d ", r, g, b);
+//         }
+//         fprintf(fp, "\n");
+//     }
+//     fclose(fp);
+//     printf("Saved image to %s\n", filename);
+// }
 

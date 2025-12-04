@@ -22,16 +22,9 @@ NVCCFLAGS = -g -G $(GPU_ARCH) --extended-lambda -std=c++17 -Xcompiler "-O3"
 # C++ Flags:
 CXXFLAGS = -O3 -std=c++17 -g
 
-# --- Libraries (OpenCV via pkg-config) ---
-# We use shell to run pkg-config and get the exact flags needed
-OPENCV_CFLAGS := $(shell pkg-config --cflags opencv4)
-OPENCV_LIBS   := $(shell pkg-config --libs opencv4)
-# OPENCV_CFLAGS = -I/usr/include/opencv4
-# OPENCV_LIBS = -L/usr/lib/ -lopencv_core -lopencv_imgproc -lopencv_highgui -lopencv_imgcodecs
-
 # Includes (GLM, etc.)
 # Assuming GLM is in standard paths. If not, add -I/path/to/glm here.
-INCLUDES = -I. $(OPENCV_CFLAGS)
+INCLUDES = -I.
 
 # --- Targets ---
 TARGET = train_app
@@ -56,7 +49,7 @@ all: $(TARGET)
 
 # Link Step: Combine all objects into the final executable
 $(TARGET): $(ALL_OBJS)
-	$(NVCC) $(GPU_ARCH) $(ALL_OBJS) -o $@ $(OPENCV_LIBS)
+	$(NVCC) $(GPU_ARCH) $(ALL_OBJS) -o $@
 
 # Compile CUDA files (.cu -> .o)
 # We add separate compilation (-dc) if you strictly separate device code, 
@@ -70,7 +63,7 @@ $(TARGET): $(ALL_OBJS)
 
 # Clean
 clean:
-	rm -f $(TARGET) $(ALL_OBJS) *.ppm
+	rm -f $(TARGET) $(ALL_OBJS) *.jpg
 
 # Phony targets (not real files)
 .PHONY: all clean

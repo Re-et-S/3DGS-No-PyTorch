@@ -1,9 +1,45 @@
 #include "ColmapLoader.h"
 #include <iostream>
 #include <stdexcept>
-#include <opencv2/opencv.hpp> 
 #include <glm/gtc/matrix_transform.hpp>
 #include <cmath>
+#include "stb_image.h"
+#include "stb_image_write.h"
+
+// --- Helper: scanline circle rasterizer ---
+void draw_circle(unsigned char* img, int width, int height, int cx, int cy, int radius) {
+    int r2 = radius * radius;
+    
+    // 1. Clamp vertical range to image bounds
+    int y_min = std::max(0, cy - radius);
+    int y_max = std::min(height - 1, cy + radius);
+
+    // 2. Iterate only over the valid rows
+    for (int y = y_min; y <= y_max; ++y) {
+        int dy = y - cy;
+        
+        // Calculate the span width for this specific row
+        // Pythagorean theorem: x = sqrt(r^2 - y^2)
+        int half_width = static_cast<int>(std::sqrt(r2 - dy * dy));
+        
+        // Clamp horizontal range to image bounds
+        int x_min = std::max(0, cx - half_width);
+        int x_max = std::min(width - 1, cx + half_width);
+
+        // 3. Optimization: Compute the starting memory address for this span
+        // Format is RGB (3 bytes per pixel)
+        unsigned char* ptr = img + (y * width + x_min) * 3;
+
+        // 4. Fill the span (No branching inside this tight loop)
+        for (int x = x_min; x <= x_max; ++x) {
+            ptr[0] = 255; // R
+            ptr[1] = 0;   // G
+            ptr[2] = 0;   // B
+            ptr += 3;     // Move to next pixel
+        }
+    }
+}
+
 
 void ColmapLoader::loadCameras() {
   std::string file_path = sparse_path_ + "/cameras.bin";
@@ -101,14 +137,18 @@ void ColmapLoader::buildTrainingViews(float znear, float zfar) {
     // 1. Determine the scale factor if we haven't for this camera yet
     if (camera_scale_map.find(img.camera_id) == camera_scale_map.end()) {
         std::string full_path = image_path_ + img.name;
-        // Read header only (IMREAD_UNCHANGED) to get dimensions quickly
-        cv::Mat header = cv::imread(full_path, cv::IMREAD_UNCHANGED);
+        
+        // REPLACED OpenCV with stbi_info
+        // stbi_info reads only the header to get dimensions (fast)
+        int w, h, comp;
+        int ok = stbi_info(full_path.c_str(), &w, &h, &comp);
 
-        if (!header.empty()) {
-            float scale_x = (float)header.cols / (float)raw_cam.width;
+        if (ok) {
+            float scale_x = (float)w / (float)raw_cam.width;
             camera_scale_map[img.camera_id] = scale_x;
         } else {
-            // Fallback if image missing (shouldn't happen in valid setup)
+            // Fallback if image missing or unreadable
+            std::cerr << "Warning: Could not read image header for " << full_path << ". Assuming scale 1.0." << std::endl;
             camera_scale_map[img.camera_id] = 1.0f;
         }
     }
@@ -189,41 +229,54 @@ void ColmapLoader::visualize(uint32_t image_id, const std::string& output_file) 
     const ColmapImage& image_to_vis = images_.at(image_id);
     const ColmapCamera& cam = cameras_.at(image_to_vis.camera_id);
 
-    // 1. Load Image using OpenCV
+    // 1. Load Image using stb_image
     std::string full_path = image_path_ + image_to_vis.name;
-    cv::Mat image_mat = cv::imread(full_path);
+    int width, height, channels;
     
-    if (image_mat.empty()) {
-        std::cerr << "Error: Could not load image: " << full_path << std::endl;
+    // Force 3 channels (RGB)
+    unsigned char* img_data = stbi_load(full_path.c_str(), &width, &height, &channels, 3);
+    
+    if (!img_data) {
+        std::cerr << "Error: Could not load image: " << full_path << " (" << stbi_failure_reason() << ")" << std::endl;
         return;
     }
-    
+  
     // 2. Build Matrices (using private helpers)
     glm::mat4 view_mat = buildViewMatrix(image_to_vis);
     glm::mat4 proj_mat = buildProjectionMatrix(cam, 0.01f, 100.0f);
     glm::mat4 vp_mat = proj_mat * view_mat;
-
-    int width = image_mat.cols;
-    int height = image_mat.rows;
 
     // 3. Project and Draw
     for (const auto& pt : points_) {
         glm::vec4 p_world(pt.xyz[0], pt.xyz[1], pt.xyz[2], 1.0f);
         glm::vec4 p_clip = vp_mat * p_world;
 
+        // Clip points behind camera
         if (p_clip.w < 0.01f) continue;
 
         glm::vec3 p_ndc = glm::vec3(p_clip) / p_clip.w;
+        
+        // Convert NDC (-1 to 1) to Pixel Coordinates
         float u = (p_ndc.x + 1.0f) * 0.5f * width;
         float v = (p_ndc.y + 1.0f) * 0.5f * height;
 
-        if (u >= 0 && u < width && v >= 0 && v < height) {
-            cv::circle(image_mat, cv::Point2f(u, v), 2, cv::Scalar(0, 0, 255), -1);
+        // Bounds check (Basic filter before calling rasterizer)
+        if (u >= -5 && u < width+5 && v >= -5 && v < height+5) {
+             draw_circle(img_data, width, height, (int)u, (int)v, 2);
         }
     }
 
-    cv::imwrite(output_file, image_mat);
-    std::cout << "Visualization saved to " << output_file << std::endl;
+    // 4. Save Image using stb_image_write
+    int success = stbi_write_jpg(output_file.c_str(), width, height, 3, img_data, 95);
+    
+    if (success) {
+        std::cout << "Visualization saved to " << output_file << std::endl;
+    } else {
+        std::cerr << "Failed to write output image to " << output_file << std::endl;
+    }
+
+    // 5. Cleanup
+    stbi_image_free(img_data);
 }
 
 glm::mat4 ColmapLoader::buildViewMatrix(const ColmapImage& image) {

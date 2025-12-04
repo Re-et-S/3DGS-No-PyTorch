@@ -95,12 +95,7 @@ int main(int argc, char** argv) {
     if (resume) {
         // This will Resize the scene and fill it with data
         start_iteration = CheckpointIO::load(checkpoint_path, scene, grads, optimizer, active_sh_degree);
-                
-        // TODO Also ensure Random States buffer is large enough
-        // if (scene.count * 4 > d_rand_states.count) {
-        //      // Reallocate RNG if needed
-        // }
-        
+                        
         printf("Resumed from step %d\n", start_iteration);
         printf("With active SH degree %d\n", active_sh_degree);
 
@@ -109,7 +104,7 @@ int main(int argc, char** argv) {
             printf("Force resetting opacity. Including momentum \n");
         }
         
-        start_iteration++; // Start working on the next step
+        start_iteration++;
     } else {
         printf("No checkpoint found. Starting from scratch.\n");
         printf("Phase 1: Warmup (0-%d steps) - SH:0, No Densification\n", warmup_steps);
@@ -139,8 +134,7 @@ int main(int argc, char** argv) {
         }
 
         // Densification Logic
-        // Usually applied after a warmup period (e.g. > 500) and stops before the end.
-        // For this specific request, we run it strictly every 100 steps.
+        
         if (i > warmup_steps && i % densify_interval == 0) {
             if (i < total_iterations - 1000) {
                 if (scene.count * 2 > max_capacity) {
@@ -164,8 +158,8 @@ int main(int argc, char** argv) {
         // Save debug image occasionally
         if (i % 100 == 0 || i == total_iterations) {
             trainer.get_current_render(h_render);
-            std::string filename = "train_step_" + std::to_string(i) + "_" + item.view->image_name + ".ppm";
-            save_image_ppm(filename.c_str(), h_render, max_w, max_h);
+            std::string filename = "train_step_" + std::to_string(i) + "_" + item.view->image_name + ".jpg";
+            save_image_jpg(filename.c_str(), h_render, max_w, max_h, 90);
         }
 
         // Save checkpoints
