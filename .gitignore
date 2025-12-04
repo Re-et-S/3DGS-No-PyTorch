@@ -2,6 +2,9 @@
 *.o
 *.obj
 
+# Compiled executable
+train_app
+
 # Compiled binary files
 *.exe
 *.out
@@ -30,6 +33,7 @@ obj/
 CMakeFiles/
 CMakeCache.txt
 *.cmake
+Makefile
 
 # Other miscellaneous files
 *.log
