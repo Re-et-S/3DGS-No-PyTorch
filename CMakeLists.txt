@@ -59,8 +59,3 @@ target_link_libraries(train_app
     PRIVATE 
     CUDA::cudart
 )
-
-# target_compile_definitions(train 
-#     PRIVATE 
-#     $<$<COMPILE_LANGUAGE:CUDA>:GLM_FORCE_CUDA>
-# )
