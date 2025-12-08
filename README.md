@@ -33,5 +33,7 @@ Run train_app on command line with the following example. The code will periodic
 ## External libraries used
 
 [nanoflann](https://github.com/jlblancoc/nanoflann) for building KDTree in the initialization phase
+
 [fused_ssim](https://github.com/rahul-goel/fused-ssim) for calculating ssim loss
+
 [stb_image](https://github.com/nothings/stb) for image IO
