@@ -230,7 +230,7 @@ void Trainer::reset_opacity() {
     optimizer.reset_opacity_state();
 }
 
-void Trainer::densify_and_prune(float scene_extent, curandState* rand_states) {
+void Trainer::densify_and_prune(float scene_extent, curandState* rand_states, bool prune_only) {
     int P = scene.count;
     float grad_threshold = config.densify_grad_threshold_pixel;
     float min_opacity = config.densify_min_opacity;
@@ -255,6 +255,16 @@ void Trainer::densify_and_prune(float scene_extent, curandState* rand_states) {
         max_screen_size_threshold,
         min_opacity
     );
+
+    if (prune_only) {
+        // Overwrite d_scan_counts so that Split/Clone (2,3) count as 1 (Keep)
+        // and Prune (1) counts as 0.
+        compute_prune_only_counts(
+            P, 
+            optimizer.clone_mask.get(), 
+            d_scan_counts.get()
+        );
+    }
 
     size_t temp_bytes = 0;
     compute_gradient_stats(P, optimizer.accum_max_pos_grad.get(), optimizer.denom.get(), nullptr, temp_bytes); // query size
@@ -331,16 +341,28 @@ void Trainer::densify_and_prune(float scene_extent, curandState* rand_states) {
     };
 
     // 6. Run Densify Kernel
-    densify(
-        P,
-        optimizer.clone_mask.get(), // Decisions
-        d_scan_offsets.get(),
-        old_d,
-        new_d,
-        scene.sh_degree,
-        scene.max_sh_coeffs,
-        rand_states // RNG
-    );
+    if (prune_only) {
+        prune(
+            P,
+            optimizer.clone_mask.get(), // Reuse decisions
+            d_scan_offsets.get(),       // Using corrected offsets
+            old_d,
+            new_d,
+            scene.sh_degree,
+            scene.max_sh_coeffs
+        );
+    } else {
+        densify(
+            P,
+            optimizer.clone_mask.get(),
+            d_scan_offsets.get(),
+            old_d,
+            new_d,
+            scene.sh_degree,
+            scene.max_sh_coeffs,
+            rand_states
+        );
+    }
 
     print_densification_stats(P, optimizer.clone_mask.get());
 

@@ -76,6 +76,18 @@ void densify(
     curandState* rand_states
 );
 
+void compute_prune_only_counts(int P, const int* decisions, int* counts);
+
+void prune(
+    int P_old,
+    const int* decisions,
+    const int* scan_offsets,
+    GaussianData old_d,
+    GaussianData new_d,
+    int sh_degree,
+    int max_sh_coeffs
+);
+
 void init_random_states(curandState* states, int n, unsigned long long seed); 
 float compute_scene_extent(const std::vector<glm::vec3>& points);
 void print_densification_stats(int P, const int* decisions);

@@ -467,6 +467,73 @@ __global__ void densify_kernel(
 
 }
 
+__global__ void get_prune_only_counts_kernel(
+    int P, 
+    const int* decisions, 
+    int* counts
+) {
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= P) return;
+    
+    // Map decisions:
+    // 1 (Prune) -> 0
+    // 0 (Keep), 2 (Clone), 3 (Split) -> 1
+    counts[idx] = (decisions[idx] == 1) ? 0 : 1;
+}
+
+__global__ void prune_only_kernel(
+    const int P_old,
+    const int* decisions,      // 0=Keep, 1=Prune, 2=Clone, 3=Split
+    const int* scan_offsets,   // Calculated with (Dec!=1 ? 1 : 0)
+    const GaussianData old_d,  
+    GaussianData new_d,        
+    int sh_degree,
+    int max_sh_coeffs
+) {
+    auto idx = cg::this_grid().thread_rank();
+    if (idx >= P_old) return;
+
+    int decision = decisions[idx];
+    
+    // 1. Prune: Do nothing and exit
+    if (decision == 1) return;
+
+    // 2. Keep (Treating 0, 2, and 3 as Keep)
+    // scan_offsets must have been calculated counting 0, 2, 3 as '1'
+    int dest_idx = scan_offsets[idx] - 1;
+
+    // Copy Data (Standard 1-to-1 copy)
+    copy_param(old_d.points, new_d.points, idx*3, dest_idx*3);     
+    copy_param(old_d.points, new_d.points, idx*3+1, dest_idx*3+1);
+    copy_param(old_d.points, new_d.points, idx*3+2, dest_idx*3+2);
+
+    copy_param(old_d.scales, new_d.scales, idx, dest_idx);
+    copy_param(old_d.rotations, new_d.rotations, idx, dest_idx);
+    copy_param(old_d.opacities, new_d.opacities, idx, dest_idx);
+    
+    copy_strided_param(old_d.dc, new_d.dc, idx, dest_idx, 3);
+    copy_strided_param(old_d.shs, new_d.shs, idx, dest_idx, max_sh_coeffs * 3);
+
+    // Optimizer State
+    copy_strided_param(old_d.m_points, new_d.m_points, idx, dest_idx, 3);
+    copy_strided_param(old_d.v_points, new_d.v_points, idx, dest_idx, 3);
+    
+    copy_strided_param(old_d.m_scales, new_d.m_scales, idx, dest_idx, 3);
+    copy_strided_param(old_d.v_scales, new_d.v_scales, idx, dest_idx, 3);
+
+    copy_strided_param(old_d.m_rots, new_d.m_rots, idx, dest_idx, 4);
+    copy_strided_param(old_d.v_rots, new_d.v_rots, idx, dest_idx, 4);
+
+    copy_param(old_d.m_opacities, new_d.m_opacities, idx, dest_idx);
+    copy_param(old_d.v_opacities, new_d.v_opacities, idx, dest_idx);
+
+    copy_strided_param(old_d.m_dc, new_d.m_dc, idx, dest_idx, 3);
+    copy_strided_param(old_d.v_dc, new_d.v_dc, idx, dest_idx, 3);
+    
+    copy_strided_param(old_d.m_shs, new_d.m_shs, idx, dest_idx, max_sh_coeffs * 3);
+    copy_strided_param(old_d.v_shs, new_d.v_shs, idx, dest_idx, max_sh_coeffs * 3);
+}
+
 // Host wrapper
 void accumulate_gradients(
     int P,
@@ -546,6 +613,31 @@ void densify(
         max_sh_coeffs
     );
     
+    CUDA_CHECK(cudaDeviceSynchronize());
+}
+
+void compute_prune_only_counts(int P, const int* decisions, int* counts) {
+    int block_size = 256;
+    int grid_size = (P + block_size - 1) / block_size;
+    get_prune_only_counts_kernel<<<grid_size, block_size>>>(P, decisions, counts);
+    CUDA_CHECK(cudaDeviceSynchronize());
+}
+
+void prune(
+    int P_old,
+    const int* decisions,
+    const int* scan_offsets,
+    GaussianData old_d,
+    GaussianData new_d,
+    int sh_degree,
+    int max_sh_coeffs
+) {
+    int block_size = 256;
+    int grid_size = (P_old + block_size - 1) / block_size;
+    
+    prune_only_kernel<<<grid_size, block_size>>>(
+        P_old, decisions, scan_offsets, old_d, new_d, sh_degree, max_sh_coeffs
+    );
     CUDA_CHECK(cudaDeviceSynchronize());
 }
 

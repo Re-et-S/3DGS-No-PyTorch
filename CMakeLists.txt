@@ -33,6 +33,10 @@ endif()
 
 project(GaussianSplattingCUDA LANGUAGES CXX CUDA)
 
+set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_INCLUDES 0)
+set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_LIBRARIES 0)
+set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_OBJECTS 0)
+
 # ==============================================================================
 #  CONFIGURATION & FLAGS
 # ==============================================================================

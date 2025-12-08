@@ -54,7 +54,7 @@ public:
 
     double train_step(const TrainingView& view, const CudaBuffer<float>& d_gt_image, int active_sh_degree);
     void reset_opacity();
-    void densify_and_prune(float scene_extent, curandState* rand_states);
+    void densify_and_prune(float scene_extent, curandState* rand_states, bool prune_only);
     void get_current_render(std::vector<float>& h_render);
 
 private:

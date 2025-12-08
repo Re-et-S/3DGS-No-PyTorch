@@ -4,7 +4,7 @@ namespace GaussianSplatting {
 
 struct TrainingConfig {
     // Training Iterations
-    int total_iterations = 10000;
+    int total_iterations = 15000;
     int warmup_steps = 1000;
 
     // Intervals
@@ -15,9 +15,9 @@ struct TrainingConfig {
     int checkpoint_interval = 500;
 
     // Densification Thresholds
-    float densify_grad_threshold_pixel = 200.0f;
+    float densify_grad_threshold_pixel = 170.0f;
 
-    float densify_percent_dense = 0.0003f;
+    float densify_percent_dense = 0.01f;
     float densify_min_opacity = 0.01f;
     int densify_max_screen_size = 3000;
 

@@ -214,11 +214,17 @@ int main(int argc, char** argv) {
         if (i > config.warmup_steps && i % config.densify_interval == 0) {
             if (i < config.total_iterations - 1000) {
                 if (scene.count * 2 > max_capacity) {
-                    printf("WARNING: RNG buffer limit. Skipping densification.\n");
+                    printf("WARNING: Gaussian count limit. Prune only.\n");
+                    trainer.densify_and_prune(
+                        scene_extent, 
+                        d_rand_states.get(),
+                        false
+                    );
                 } else {
                     trainer.densify_and_prune(
                         scene_extent, 
-                        d_rand_states.get()
+                        d_rand_states.get(),
+                        false
                     );
                 }
             }            
