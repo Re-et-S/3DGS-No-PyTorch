@@ -4,6 +4,7 @@
 #include "cuda_buffer.cuh"
 #include "optimizer.cuh"
 #include "ssim.cuh"
+#include "config.h"
 #include <curand_kernel.h>
 
 class Trainer {
@@ -12,6 +13,8 @@ public:
     GaussianGrads& grads;
     Optimizer& optimizer;
     SSIMData& ssim_data;
+
+    GaussianSplatting::TrainingConfig config;
 
     // Image size
     int W, H;
@@ -32,9 +35,9 @@ public:
     CudaBuffer<float>  dL_dpixels;
     
 
-    Trainer(GaussianScene& scene_ref, GaussianGrads& grads_ref, Optimizer& opt_ref, SSIMData& ssim_ref, int width, int height):
+    Trainer(GaussianScene& scene_ref, GaussianGrads& grads_ref, Optimizer& opt_ref, SSIMData& ssim_ref, int width, int height, const GaussianSplatting::TrainingConfig& cfg):
           scene(scene_ref), grads(grads_ref), optimizer(opt_ref), ssim_data(ssim_ref),
-          W(width), H(height),
+          config(cfg), W(width), H(height),
           d_gt_image(width * height * 3), d_bg_color(3), d_viewmatrix(16), d_projmatrix(16),
           d_out_color(width * height * 3),
           // d_final_T(width * height),
@@ -51,7 +54,7 @@ public:
 
     double train_step(const TrainingView& view, const CudaBuffer<float>& d_gt_image, int active_sh_degree);
     void reset_opacity();
-    void densify_and_prune(float grad_threshold, float scene_extent, curandState* rand_states);
+    void densify_and_prune(float scene_extent, curandState* rand_states);
     void get_current_render(std::vector<float>& h_render);
 
 private:

@@ -7,6 +7,7 @@
 #include "ssim.cuh"
 #include "ImageIO.h"
 #include "plyIO.h"
+#include "config.h"
 
 #include <filesystem>
 #include <random>
@@ -16,6 +17,7 @@ namespace fs = std::filesystem;
 int main(int argc, char** argv) {
     
     // 0. Argument Parsing & Setup
+    GaussianSplatting::TrainingConfig config;
     
     if (argc < 3) {
         std::cerr << "Usage: " << argv[0] << " <data_folder> <experiment_name> [checkpoint_step]" << std::endl;
@@ -140,7 +142,7 @@ int main(int argc, char** argv) {
     Optimizer optimizer(P, M);
 
     // Setup Random States for Densification
-    size_t max_capacity = 3900000; 
+    size_t max_capacity = config.max_gaussian_count;
     CudaBuffer<curandState> d_rand_states(max_capacity);
     init_random_states(d_rand_states.get(), max_capacity, 42);
     printf("Finished init random state\n");
@@ -155,22 +157,12 @@ int main(int argc, char** argv) {
     CudaBuffer<float> d_gt_image(num_pixels * 3);
     d_gt_image.to_device(h_gt_image);
 
-    Trainer trainer(scene, grads, optimizer, ssim_data, max_w, max_h);
+    Trainer trainer(scene, grads, optimizer, ssim_data, max_w, max_h, config);
 
     std::mt19937 rng(42);
     std::uniform_int_distribution<size_t> dist(0, dataset.size() - 1);
 
     std::vector<float> h_render(num_pixels * 3);
-
-    // Training Constants
-    const float densify_grad_threshold = 200.0f; // pixel unit
-    const int total_iterations = 10000; 
-    const int warmup_steps = 1000;
-    const int sh_increase_interval = 1000;
-    const int densify_interval = 100;
-    const int opacitiy_reset_interval = 3000;
-    const int debug_image_interval = 200;
-    const int checkpoint_interval = 500;
 
     int active_sh_degree = 0;
     int start_iteration = 1;
@@ -182,7 +174,7 @@ int main(int argc, char** argv) {
         printf("Resumed from step %d\n", start_iteration);
         printf("With active SH degree %d\n", active_sh_degree);
 
-        if (start_iteration % 3000 == 0) {
+        if (start_iteration % config.opacity_reset_interval == 0) {
             trainer.reset_opacity();
             printf("Force resetting opacity. Including momentum \n");
         }
@@ -190,7 +182,7 @@ int main(int argc, char** argv) {
         start_iteration++;
     } else {
         printf("Starting from scratch.\n");
-        printf("Phase 1: Warmup (0-%d steps) - SH:0, No Densification\n", warmup_steps);
+        printf("Phase 1: Warmup (0-%d steps) - SH:0, No Densification\n", config.warmup_steps);
     }
     
     printf("Starting training loop.\n");
@@ -198,13 +190,13 @@ int main(int argc, char** argv) {
     
     // 4. Training Loop
     
-    for (int i = start_iteration; i <= total_iterations; ++i) {
+    for (int i = start_iteration; i <= config.total_iterations; ++i) {
         auto item = dataset.get_item(dist(rng));
         
         // Upload ground truth image
         d_gt_image.to_device(item.gt_image);
 
-        if (i % sh_increase_interval == 0) {
+        if (i % config.sh_increase_interval == 0) {
             if (active_sh_degree < D) {
                 active_sh_degree++;
                 printf("[Step %d] UPGRADE: Increasing SH Degree to %d\n", i, active_sh_degree);
@@ -219,13 +211,12 @@ int main(int argc, char** argv) {
         }
 
         // Densification Logic
-        if (i > warmup_steps && i % densify_interval == 0) {
-            if (i < total_iterations - 1000) {
+        if (i > config.warmup_steps && i % config.densify_interval == 0) {
+            if (i < config.total_iterations - 1000) {
                 if (scene.count * 2 > max_capacity) {
                     printf("WARNING: RNG buffer limit. Skipping densification.\n");
                 } else {
                     trainer.densify_and_prune(
-                        densify_grad_threshold, 
                         scene_extent, 
                         d_rand_states.get()
                     );
@@ -234,13 +225,13 @@ int main(int argc, char** argv) {
         }
 
         // Reset opacity
-        if (i % opacitiy_reset_interval == 0) {
+        if (i % config.opacity_reset_interval == 0) {
             printf("Resetting opacities\n");
             trainer.reset_opacity();
         }
 
         // Save debug image occasionally
-        if (i % debug_image_interval == 0 || i == total_iterations) {
+        if (i % config.debug_image_interval == 0 || i == config.total_iterations) {
             trainer.get_current_render(h_render);
             
             // Construct filename: output/<experiment>/training_renders/train_step_X_imgname.jpg
@@ -249,7 +240,7 @@ int main(int argc, char** argv) {
         }
 
         // Save checkpoints
-        if (i % checkpoint_interval == 0) {
+        if (i % config.checkpoint_interval == 0) {
              
              fs::path ckpt_step_path = checkpoints_dir / ("step_" + std::to_string(i) + ".ckpt");
              fs::path ckpt_latest_path = checkpoints_dir / "latest.ckpt";

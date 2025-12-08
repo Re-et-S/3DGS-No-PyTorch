@@ -27,7 +27,7 @@ static __global__ void compute_loss_and_gradient(
         // L = 0.5 * (render - gt)^2
         pixel_loss += 0.5f * diff * diff;
     }
-    atomicAdd(d_loss_output, pixel_loss);
+    atomicAdd(d_loss_output, (double)pixel_loss);
 }
 
 static __global__ void compute_combined_loss_and_gradient(
@@ -73,7 +73,7 @@ static __global__ void compute_combined_loss_and_gradient(
     // Weighted sum of scalar losses
     float total_local_loss = (1.0f - lambda) * pixel_loss_sum + lambda * ssim_loss_sum;
     
-    atomicAdd(d_loss_output, total_local_loss);
+    atomicAdd(d_loss_output, (double)total_local_loss);
 }
 
 double Trainer::train_step(const TrainingView& view, const CudaBuffer<float>& d_gt_image, int active_sh_degree) {
@@ -131,7 +131,7 @@ double Trainer::train_step(const TrainingView& view, const CudaBuffer<float>& d_
             false // debug
         );
 
-        float lambda_dssim = 0.2f;
+        float lambda_dssim = config.lambda_dssim;
 
         fusedssim_forward(H, W, 3, 0.01f * 0.01f, 0.03f * 0.03f,
                     d_out_color.get(), // Rendered Image
@@ -230,11 +230,12 @@ void Trainer::reset_opacity() {
     optimizer.reset_opacity_state();
 }
 
-void Trainer::densify_and_prune(float grad_threshold, float scene_extent, curandState* rand_states) {
+void Trainer::densify_and_prune(float scene_extent, curandState* rand_states) {
     int P = scene.count;
-    float min_opacity = 0.01f;
-    float percent_dense = 0.0003f;
-    int max_screen_size_threshold = 3000;
+    float grad_threshold = config.densify_grad_threshold_pixel;
+    float min_opacity = config.densify_min_opacity;
+    float percent_dense = config.densify_percent_dense;
+    int max_screen_size_threshold = config.densify_max_screen_size;
     
     // 1. Mark Candidates
     CudaBuffer<int> d_scan_counts(P); 
