@@ -27,7 +27,7 @@ static __global__ void compute_loss_and_gradient(
         // L = 0.5 * (render - gt)^2
         pixel_loss += 0.5f * diff * diff;
     }
-    atomicAdd(d_loss_output, pixel_loss);
+    atomicAdd(d_loss_output, (double)pixel_loss);
 }
 
 static __global__ void compute_combined_loss_and_gradient(
@@ -73,7 +73,7 @@ static __global__ void compute_combined_loss_and_gradient(
     // Weighted sum of scalar losses
     float total_local_loss = (1.0f - lambda) * pixel_loss_sum + lambda * ssim_loss_sum;
     
-    atomicAdd(d_loss_output, total_local_loss);
+    atomicAdd(d_loss_output, (double)total_local_loss);
 }
 
 double Trainer::train_step(const TrainingView& view, const CudaBuffer<float>& d_gt_image, int active_sh_degree) {

@@ -1,11 +1,4 @@
 cmake_minimum_required(VERSION 3.18)
-project(GaussianSplattingCUDA LANGUAGES CXX CUDA)
-
-# ==============================================================================
-#  CONFIGURATION & FLAGS
-# ==============================================================================
-set(CMAKE_CXX_STANDARD  17)
-set(CMAKE_CUDA_STANDARD 17)
 
 # Auto-detect CUDA Architecture using nvidia-smi if not specified
 if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "native")
@@ -37,6 +30,14 @@ if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES OR CMAKE_CUDA_ARCHITECTURES STREQUAL "na
 else()
     message(STATUS "Using specified CMAKE_CUDA_ARCHITECTURES: ${CMAKE_CUDA_ARCHITECTURES}")
 endif()
+
+project(GaussianSplattingCUDA LANGUAGES CXX CUDA)
+
+# ==============================================================================
+#  CONFIGURATION & FLAGS
+# ==============================================================================
+set(CMAKE_CXX_STANDARD  17)
+set(CMAKE_CUDA_STANDARD 17)
 
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -O3 --use_fast_math")
