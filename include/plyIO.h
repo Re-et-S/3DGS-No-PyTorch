@@ -80,31 +80,15 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
         // C. DC Features (From d_dc)
         // R, G, B
         // 1. Load the optimizer state (Logit)
-        float r_logit = h_dc[i * 3 + 0] * SH_C0; 
-        float g_logit = h_dc[i * 3 + 1] * SH_C0;
-        float b_logit = h_dc[i * 3 + 2] * SH_C0;
+        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 0]), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 1]), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 2]), sizeof(float));
 
-        // 2. Apply Sigmoid to get Linear RGB (0.0 to 1.0)
-        auto sigmoid = [](float x) { return 1.0f / (1.0f + expf(-x)); };
-        float r = sigmoid(r_logit);
-        float g = sigmoid(g_logit);
-        float b = sigmoid(b_logit);
-
-        // 3. Convert Linear RGB to Standard SH (Degree 0)
-        float r_sh = (r - 0.5f) / SH_C0;
-        float g_sh = (g - 0.5f) / SH_C0;
-        float b_sh = (b - 0.5f) / SH_C0;
-
-        out.write(reinterpret_cast<const char *>(&r_sh), sizeof(float));
-        out.write(reinterpret_cast<const char *>(&g_sh), sizeof(float));
-        out.write(reinterpret_cast<const char *>(&b_sh), sizeof(float));
         // D. Rest Features (From d_shs)
-        // Your d_shs buffer is size (16 * 3). Index 0 is DC (stale/unused), 1-15 are Rest.
-        // We skip the first 3 floats (DC) of the current Gaussian's block in d_shs.
-        int stride = scene.max_sh_coeffs * 3; // 48 floats
+        int stride = scene.max_sh_coeffs * 3;
         int base_idx = i * stride;
         
-        // Start from offset 3 (skip DC) up to stride
+        // Skip DC (3 floats) and write the rest
         for (int k = 3; k < stride; ++k) {
             out.write(reinterpret_cast<const char*>(&h_shs[base_idx + k]), sizeof(float));
         }

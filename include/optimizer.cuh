@@ -1,6 +1,7 @@
 #pragma once
 #include "cuda_buffer.cuh"
 #include "adam.cuh"
+#include "scene.cuh"
  
 class Optimizer {
 public:
@@ -9,7 +10,7 @@ public:
         float lr_scale = 0.005f;
         float lr_rot = 0.001f;
         float lr_opacity = 0.05f;
-        float lr_color = 0.0025f;
+        float lr_color = 0.0015f;
         float b1 = 0.9f;
         float b2 = 0.999f;
         float eps = 1e-8f;

@@ -22,53 +22,41 @@ __device__ __forceinline__ float sq(float x) { return x * x; }
 // each Gaussian.
 __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* dc, const float* shs, const bool* clamped, const glm::vec3* dL_dcolor, glm::vec3* dL_dmeans, glm::vec3* dL_ddc, glm::vec3* dL_dshs)
 {
-	// Compute intermediate values, as it is done during forward
+    // 1. Compute view direction (same as forward)
 	glm::vec3 pos = means[idx];
 	glm::vec3 dir_orig = pos - campos;
 	glm::vec3 dir = dir_orig / glm::length(dir_orig);
 
-    glm::vec3* direct_color = ((glm::vec3*)dc) + idx;
-    glm::vec3* sh = ((glm::vec3*)shs) + idx * max_coeffs;
+	glm::vec3* sh = ((glm::vec3*)shs) + idx * max_coeffs;
 
-    glm::vec3 dL_dRGB = dL_dcolor[idx];
-	dL_dRGB.x *= clamped[3 * idx + 0] ? 0 : 1;
-	dL_dRGB.y *= clamped[3 * idx + 1] ? 0 : 1;
-	dL_dRGB.z *= clamped[3 * idx + 2] ? 0 : 1;
-        
-    // 1. Activation: a = sigmoid(p * SH_C0)
-    glm::vec3 p_0_unbiased = *direct_color * SH_C0;
-    glm::vec3 a_0 = { // a_0 = activated color
-        sigmoid(p_0_unbiased.x),
-        sigmoid(p_0_unbiased.y),
-        sigmoid(p_0_unbiased.z)
-    };
-    
-    // 2. Chain Rule: dL/dp = dL/da * a(1-a) * SH_C0
-    glm::vec3 d_sigmoid = a_0 * (1.0f - a_0);
-    
-    // Target location for this Gaussian to write SH gradients to
-    glm::vec3* dL_ddirect_color = dL_ddc + idx;
+	// 2. Retrieve the upstream gradient (dL/dColor)
+	glm::vec3 dL_dRGB = dL_dcolor[idx];
+
+	// 3. Apply ReLU Derivative (Clamp)
+	// If the forward pass clamped the value to 0, the gradient is blocked (0).
+	dL_dRGB.x *= clamped[3 * idx + 0] ? 0.0f : 1.0f;
+	dL_dRGB.y *= clamped[3 * idx + 1] ? 0.0f : 1.0f;
+	dL_dRGB.z *= clamped[3 * idx + 2] ? 0.0f : 1.0f;
+
+	// 4. Compute Gradient for DC (Base Color)
+	// Forward: Color = 0.5 + SH_C0 * DC + ...
+	// Derivative: dColor/dDC = SH_C0
+	glm::vec3* dL_ddirect_color = dL_ddc + idx;
+	dL_ddirect_color[0] = dL_dRGB * SH_C0;
+
+	// 5. Compute Gradients for SH coefficients (Rest) & View Direction
 	glm::vec3* dL_dsh = dL_dshs + idx * max_coeffs;
-
-    // Apply derivative to the DC term (index 0)
-	dL_ddirect_color[0] = dL_dRGB * (d_sigmoid * SH_C0);
-
-    // if (idx < 200) printf("G %d Vis. Grad: %f\n", idx, dL_ddirect_color[0].x);
-	// Use PyTorch rule for clamping: if clamping was applied,
-	// gradient becomes 0.
-	// glm::vec3 dL_dRGB = dL_dcolor[idx];
-	// dL_dRGB.x *= clamped[3 * idx + 0] ? 0 : 1;
-	// dL_dRGB.y *= clamped[3 * idx + 1] ? 0 : 1;
-	// dL_dRGB.z *= clamped[3 * idx + 2] ? 0 : 1;
-
+	
+	// Accumulators for view direction gradient
 	glm::vec3 dRGBdx(0, 0, 0);
 	glm::vec3 dRGBdy(0, 0, 0);
 	glm::vec3 dRGBdz(0, 0, 0);
+	
 	float x = dir.x;
 	float y = dir.y;
 	float z = dir.z;
 
-	// No tricks here, just high school-level calculus.
+    // No tricks here, just high school-level calculus.
 	// float dRGBdsh0 = SH_C0;
 	// dL_ddirect_color[0] = dRGBdsh0 * dL_dRGB;
 	if (deg > 0)

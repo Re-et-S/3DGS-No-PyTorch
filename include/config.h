@@ -17,7 +17,7 @@ struct TrainingConfig {
     // Densification Thresholds
     float densify_grad_threshold_pixel = 170.0f;
 
-    float densify_percent_dense = 0.01f;
+    float densify_percent_dense = 0.03f;
     float densify_min_opacity = 0.01f;
     int densify_max_screen_size = 3000;
 

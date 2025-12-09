@@ -1,4 +1,5 @@
 #pragma once
+
 #include <iostream>
 #include "ColmapLoader.h"
 #include "cuda_buffer.cuh"
@@ -271,22 +272,20 @@ inline void initGaussians(const std::vector<ColmapPoint3D>& colmap_points,
         h_opacities[i] = logit(0.05f);
 
         // 4. Spherical Harmonics (Color)
-        // The paper uses sigmoid for the 0-th order (DC) coefficient.
-        // We store logit(color) / SH_C0.
-
         float3 color_norm = { 
-        point.rgb[0] / 255.0f, 
-        point.rgb[1] / 255.0f, 
-        point.rgb[2] / 255.0f 
+            point.rgb[0] / 255.0f, 
+            point.rgb[1] / 255.0f, 
+            point.rgb[2] / 255.0f 
         };
 
         // Store at the 0-th order (DC) coefficient location
-        // Assumes (N, 16, 3) layout: (idx * 16 * 3) + (coeff_idx * 3) + (channel)
         size_t sh_base_idx = i * 3;
-        h_dc[sh_base_idx + 0] = logit(color_norm.x) / SH_C0; // R (DC)
-        h_dc[sh_base_idx + 1] = logit(color_norm.y) / SH_C0; // G (DC)
-        h_dc[sh_base_idx + 2] = logit(color_norm.z) / SH_C0; // B (DC)
-    
+
+        // Inverse of: Color = 0.5 + (DC * C0)
+        // DC = (Color - 0.5) / C0
+        h_dc[sh_base_idx + 0] = (color_norm.x - 0.5f) / SH_C0; // R
+        h_dc[sh_base_idx + 1] = (color_norm.y - 0.5f) / SH_C0; // G
+        h_dc[sh_base_idx + 2] = (color_norm.z - 0.5f) / SH_C0; // B    
         // All other 15 AC coefficients are already 0 from the vector initialization.
     }        
         // 5. Scale

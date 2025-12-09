@@ -20,7 +20,7 @@ make -j8
 
 Starting point should be colmap sparse data and images. Expecting two folders in the data folder `images/` and `sparse/`
 
-Run train_app on command line with the following example. The code will periodically save point clouds, training checkpoints, and debug rendered images. Training and saving parameters can be modified in the `/include/config.h` file.
+Run train_app on command line with the following example. The code will periodically save point clouds, training checkpoints, and debug rendered images. Currently the saving is unoptimized and the checkpoint size can get large. Training and saving parameters can be modified in the `/include/config.h` file. 
 
 ``` sh
 # start a fresh run

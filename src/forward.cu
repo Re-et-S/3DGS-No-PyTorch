@@ -27,12 +27,16 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 	glm::vec3 dir = pos - campos;
 	dir = dir / glm::length(dir);
 
+    // Pointers to SH data
     glm::vec3* direct_color = ((glm::vec3*)dc) + idx;
     glm::vec3* sh = ((glm::vec3*)shs) + idx * max_coeffs;
+
+    // 1. Compute Base Color (DC)
+
     glm::vec3 result = {
-        sigmoid(SH_C0 * direct_color[0].x),
-        sigmoid(SH_C0 * direct_color[0].y),
-        sigmoid(SH_C0 * direct_color[0].z)
+        SH_C0 * direct_color[0].x,
+        SH_C0 * direct_color[0].y,
+        SH_C0 * direct_color[0].z
     };
 
 	if (deg > 0)
@@ -40,6 +44,7 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 		float x = dir.x;
 		float y = dir.y;
 		float z = dir.z;
+        
 		result = result - SH_C1 * y * sh[1] + SH_C1 * z * sh[2] - SH_C1 * x * sh[3];
 
 		if (deg > 1)
@@ -66,13 +71,17 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 			}
 		}
 	}
-	// result += 0.5f;
+    
+    // 2. Apply Standard Offset
+	result += 0.5f;
 
-	// RGB colors are clamped to positive values. If values are
-	// clamped, we need to keep track of this for the backward pass.
-	clamped[3 * idx + 0] = (result.x < 0);
-	clamped[3 * idx + 1] = (result.y < 0);
-	clamped[3 * idx + 2] = (result.z < 0);
+	// We must track which channels were clamped (< 0) to zero out their gradients later.
+	clamped[3 * idx + 0] = (result.x < 0.0f);
+	clamped[3 * idx + 1] = (result.y < 0.0f);
+	clamped[3 * idx + 2] = (result.z < 0.0f);
+
+    // Note: We clamp to 0.0 (Lower Bound), but NOT to 1.0 (Upper Bound).
+    // The loss function handles over-saturation.
 	return glm::max(result, 0.0f);
 }
 
