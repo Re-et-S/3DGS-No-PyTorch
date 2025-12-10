@@ -111,10 +111,10 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
             q = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f); // Fallback
         }
         
-        out.write(reinterpret_cast<const char*>(&h_rotations[i].w), sizeof(float)); // rot_0
-        out.write(reinterpret_cast<const char*>(&h_rotations[i].x), sizeof(float)); // rot_1
-        out.write(reinterpret_cast<const char*>(&h_rotations[i].y), sizeof(float)); // rot_2
-        out.write(reinterpret_cast<const char*>(&h_rotations[i].z), sizeof(float)); // rot_3
+        out.write(reinterpret_cast<const char*>(&h_rotations[i].x), sizeof(float)); // rot_0
+        out.write(reinterpret_cast<const char*>(&h_rotations[i].y), sizeof(float)); // rot_1
+        out.write(reinterpret_cast<const char*>(&h_rotations[i].z), sizeof(float)); // rot_2
+        out.write(reinterpret_cast<const char*>(&h_rotations[i].w), sizeof(float)); // rot_3
     }
 
     out.close();
