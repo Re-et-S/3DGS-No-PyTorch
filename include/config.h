@@ -4,7 +4,7 @@ namespace GaussianSplatting {
 
 struct TrainingConfig {
     // Training Iterations
-    int total_iterations = 15000;
+    int total_iterations = 20000;
     int warmup_steps = 1000;
 
     // Intervals

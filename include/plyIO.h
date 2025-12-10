@@ -35,10 +35,14 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
     out << "property float x\n";
     out << "property float y\n";
     out << "property float z\n";
-    out << "property float nx\n";
-    out << "property float ny\n";
-    out << "property float nz\n";
-    
+    out << "property float scale_0\n";
+    out << "property float scale_1\n";
+    out << "property float scale_2\n";    
+    out << "property float opacity\n";
+    out << "property float rot_0\n";
+    out << "property float rot_1\n";
+    out << "property float rot_2\n";
+    out << "property float rot_3\n";
     // DC (f_dc_0, f_dc_1, f_dc_2)
     out << "property float f_dc_0\n";
     out << "property float f_dc_1\n";
@@ -52,14 +56,7 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
         out << "property float f_rest_" << i << "\n";
     }
 
-    out << "property float opacity\n";
-    out << "property float scale_0\n";
-    out << "property float scale_1\n";
-    out << "property float scale_2\n";
-    out << "property float rot_0\n";
-    out << "property float rot_1\n";
-    out << "property float rot_2\n";
-    out << "property float rot_3\n";
+
     out << "end_header\n";
 
     // 3. Write Binary Data
@@ -71,37 +68,15 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
         out.write(reinterpret_cast<const char*>(&h_points[i * 3 + 1]), sizeof(float));
         out.write(reinterpret_cast<const char*>(&h_points[i * 3 + 2]), sizeof(float));
 
-        // B. Normals (Zero)
-        float zero = 0.0f;
-        out.write(reinterpret_cast<const char*>(&zero), sizeof(float));
-        out.write(reinterpret_cast<const char*>(&zero), sizeof(float));
-        out.write(reinterpret_cast<const char*>(&zero), sizeof(float));
-
-        // C. DC Features (From d_dc)
-        // R, G, B
-        // 1. Load the optimizer state (Logit)
-        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 0]), sizeof(float));
-        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 1]), sizeof(float));
-        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 2]), sizeof(float));
-
-        // D. Rest Features (From d_shs)
-        int stride = scene.max_sh_coeffs * 3;
-        int base_idx = i * stride;
-        
-        // Skip DC (3 floats) and write the rest
-        for (int k = 3; k < stride; ++k) {
-            out.write(reinterpret_cast<const char*>(&h_shs[base_idx + k]), sizeof(float));
-        }
-
-        // E. Opacity
-        out.write(reinterpret_cast<const char*>(&h_opacities[i]), sizeof(float));
-
-        // F. Scale
+        // B. Scale
         out.write(reinterpret_cast<const char*>(&h_scales[i].x), sizeof(float));
         out.write(reinterpret_cast<const char*>(&h_scales[i].y), sizeof(float));
         out.write(reinterpret_cast<const char*>(&h_scales[i].z), sizeof(float));
+      
+        // C. Opacity
+        out.write(reinterpret_cast<const char*>(&h_opacities[i]), sizeof(float));
 
-        // G. Rotation (Quaternion)
+        // D. Rotation (Quaternion)
         // normalize
         glm::vec4 q = h_rotations[i];
         float len = sqrt(q.w*q.w + q.x*q.x + q.y*q.y + q.z*q.z);
@@ -115,6 +90,23 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
         out.write(reinterpret_cast<const char*>(&h_rotations[i].y), sizeof(float)); // rot_1
         out.write(reinterpret_cast<const char*>(&h_rotations[i].z), sizeof(float)); // rot_2
         out.write(reinterpret_cast<const char*>(&h_rotations[i].w), sizeof(float)); // rot_3
+      
+        // E. DC Features (From d_dc)
+        // R, G, B
+        // 1. Load the optimizer state
+        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 0]), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 1]), sizeof(float));
+        out.write(reinterpret_cast<const char*>(&h_dc[i * 3 + 2]), sizeof(float));
+
+        // F. Rest Features (From d_shs)
+        int stride = scene.max_sh_coeffs * 3;
+        int base_idx = i * stride;
+        
+        // Skip DC (3 floats) and write the rest
+        for (int k = 3; k < stride; ++k) {
+            out.write(reinterpret_cast<const char*>(&h_shs[base_idx + k]), sizeof(float));
+        }
+
     }
 
     out.close();
