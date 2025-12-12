@@ -85,12 +85,19 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
         } else {
             q = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f); // Fallback
         }
-        
-        out.write(reinterpret_cast<const char*>(&q.w), sizeof(float)); 
-        out.write(reinterpret_cast<const char*>(&q.z), sizeof(float)); 
-        out.write(reinterpret_cast<const char*>(&q.y), sizeof(float)); 
-        out.write(reinterpret_cast<const char*>(&q.x), sizeof(float)); 
-      
+
+        out.write(reinterpret_cast<const char *>(&q.x),
+                  sizeof(float)); // rot_0 =  real
+        float neg_i = -q.y;
+        out.write(reinterpret_cast<const char *>(&neg_i),
+                  sizeof(float)); // rot_1 = -i
+        float neg_j = -q.z;
+        out.write(reinterpret_cast<const char *>(&neg_j),
+                  sizeof(float)); // rot_2 = -j
+        float neg_k = -q.w;
+        out.write(reinterpret_cast<const char *>(&neg_k),
+                  sizeof(float)); // rot_3 = -k
+
         // E. DC Features (From d_dc)
         // R, G, B
         // 1. Load the optimizer state
