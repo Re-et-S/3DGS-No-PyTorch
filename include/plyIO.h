@@ -86,10 +86,10 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
             q = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f); // Fallback
         }
         
-        out.write(reinterpret_cast<const char*>(&h_rotations[i].x), sizeof(float)); // rot_0
-        out.write(reinterpret_cast<const char*>(&h_rotations[i].y), sizeof(float)); // rot_1
-        out.write(reinterpret_cast<const char*>(&h_rotations[i].z), sizeof(float)); // rot_2
-        out.write(reinterpret_cast<const char*>(&h_rotations[i].w), sizeof(float)); // rot_3
+        out.write(reinterpret_cast<const char*>(&q.w), sizeof(float)); 
+        out.write(reinterpret_cast<const char*>(&q.z), sizeof(float)); 
+        out.write(reinterpret_cast<const char*>(&q.y), sizeof(float)); 
+        out.write(reinterpret_cast<const char*>(&q.x), sizeof(float)); 
       
         // E. DC Features (From d_dc)
         // R, G, B
@@ -104,7 +104,11 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
         
         // Skip DC (3 floats) and write the rest
         for (int k = 3; k < stride; ++k) {
-            out.write(reinterpret_cast<const char*>(&h_shs[base_idx + k]), sizeof(float));
+          float coeff = h_shs[base_idx + k];
+          if ((k / 3) % 2 != 0) {
+            coeff = -coeff;
+          }
+          out.write(reinterpret_cast<const char*>(&coeff), sizeof(float));
         }
 
     }
