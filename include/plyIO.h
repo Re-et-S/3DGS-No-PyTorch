@@ -109,17 +109,152 @@ inline void save_ply(const std::string& filename, GaussianScene& scene) {
         int stride = scene.max_sh_coeffs * 3;
         int base_idx = i * stride;
         
-        // Skip DC (3 floats) and write the rest
-        for (int k = 3; k < stride; ++k) {
-          float coeff = h_shs[base_idx + k];
-          if ((k / 3) % 2 != 0) {
-            coeff = -coeff;
+        // Write SH coefficients in Planar order (RR...GG...BB...) to match Brush/Splat.
+        // Skip DC (index 0) and write the rest (1 to max_sh_coeffs-1)
+        for (int channel = 0; channel < 3; ++channel) {
+          for (int j = 1; j < scene.max_sh_coeffs; ++j) {
+            // Determine index in the interleaved h_shs array
+            // coeff j for channel is at: j * 3 + channel
+            int k = j * 3 + channel;
+            float coeff = h_shs[base_idx + k];
+
+            // Apply negation logic based on SH band index j
+            // (Matches original logic: (k/3)%2 != 0  => j%2 != 0)
+            if (j % 2 != 0) {
+              coeff = -coeff;
+            }
+            out.write(reinterpret_cast<const char *>(&coeff), sizeof(float));
           }
-          out.write(reinterpret_cast<const char*>(&coeff), sizeof(float));
         }
 
     }
 
     out.close();
     std::cout << "PLY Saved." << std::endl;
+}
+
+#include <sstream>
+
+// Helper to determine SH degree from number of rest coefficients
+// Total coeffs = 3 (DC) + num_rest
+// coeffs_per_channel = Total / 3
+// (degree + 1)^2 = coeffs_per_channel
+inline int degree_from_rest_coeffs(int num_rest) {
+    int total_coeffs_per_channel = (num_rest + 3) / 3;
+    int degree = (int)sqrt(total_coeffs_per_channel) - 1;
+    return degree;
+}
+
+inline GaussianScene load_ply(const std::string& filename) {
+    std::ifstream in(filename, std::ios::binary);
+    if (!in.is_open()) {
+        throw std::runtime_error("Could not open " + filename + " for reading PLY.");
+    }
+
+    std::cout << "Loading PLY from " << filename << "..." << std::endl;
+
+    // Parse Header
+    std::string line;
+    size_t count = 0;
+    int num_rest_coeffs = 0;
+
+    while (std::getline(in, line)) {
+        if (line.find("element vertex") != std::string::npos) {
+            std::stringstream ss(line);
+            std::string temp;
+            ss >> temp >> temp >> count;
+        } else if (line.find("property float f_rest_") != std::string::npos) {
+            num_rest_coeffs++;
+        } else if (line == "end_header") {
+            break;
+        }
+    }
+
+    int sh_degree = degree_from_rest_coeffs(num_rest_coeffs);
+    int max_sh_coeffs = (sh_degree + 1) * (sh_degree + 1);
+
+    std::cout << "Detected " << count << " Gaussians." << std::endl;
+    std::cout << "Detected " << num_rest_coeffs << " rest coefficients => SH Degree " << sh_degree << std::endl;
+
+    // Allocate Host Buffers
+    std::vector<float> h_points(count * 3);
+    std::vector<float> h_dc(count * 3);
+    std::vector<float> h_shs(count * max_sh_coeffs * 3);
+    std::vector<float> h_opacities(count);
+    std::vector<glm::vec3> h_scales(count);
+    std::vector<glm::vec4> h_rotations(count);
+
+    // Read Data
+    for (size_t i = 0; i < count; ++i) {
+        // A. Position
+        in.read(reinterpret_cast<char*>(&h_points[i * 3 + 0]), sizeof(float));
+        in.read(reinterpret_cast<char*>(&h_points[i * 3 + 1]), sizeof(float));
+        in.read(reinterpret_cast<char*>(&h_points[i * 3 + 2]), sizeof(float));
+
+        // B. Scale
+        float sx, sy, sz;
+        in.read(reinterpret_cast<char*>(&sx), sizeof(float));
+        in.read(reinterpret_cast<char*>(&sy), sizeof(float));
+        in.read(reinterpret_cast<char*>(&sz), sizeof(float));
+        h_scales[i] = glm::vec3(sx, sy, sz);
+
+        // C. Opacity
+        in.read(reinterpret_cast<char*>(&h_opacities[i]), sizeof(float));
+
+        // D. Rotation
+        float r0, r1, r2, r3;
+        in.read(reinterpret_cast<char*>(&r0), sizeof(float));
+        in.read(reinterpret_cast<char*>(&r1), sizeof(float));
+        in.read(reinterpret_cast<char*>(&r2), sizeof(float));
+        in.read(reinterpret_cast<char*>(&r3), sizeof(float));
+
+        // Apply Negation to imaginary parts to match internal representation
+        h_rotations[i] = glm::vec4(r0, -r1, -r2, -r3);
+
+        // E. DC
+        in.read(reinterpret_cast<char*>(&h_dc[i * 3 + 0]), sizeof(float));
+        in.read(reinterpret_cast<char*>(&h_dc[i * 3 + 1]), sizeof(float));
+        in.read(reinterpret_cast<char*>(&h_dc[i * 3 + 2]), sizeof(float));
+
+        // F. Rest Features (Planar -> Interleaved)
+        // File: R1..Rn, G1..Gn, B1..Bn
+        // Internal: R1,G1,B1, R2,G2,B2...
+
+        std::vector<float> file_rest(num_rest_coeffs);
+        in.read(reinterpret_cast<char*>(file_rest.data()), num_rest_coeffs * sizeof(float));
+
+        int coeffs_per_channel = max_sh_coeffs; // Includes DC
+        int rest_per_channel = coeffs_per_channel - 1;
+
+        int base_idx = i * max_sh_coeffs * 3;
+
+        for (int channel = 0; channel < 3; ++channel) {
+            for (int j = 1; j < max_sh_coeffs; ++j) {
+                // Input index (Planar): Channel offset + (coeff_index - 1)
+                int file_idx = channel * rest_per_channel + (j - 1);
+
+                float val = file_rest[file_idx];
+
+                // Negation Logic for odd bands
+                if (j % 2 != 0) {
+                    val = -val;
+                }
+
+                // Output index (Interleaved): j * 3 + channel
+                // Destination index in h_shs (relative to this Gaussian)
+                int dest_idx = base_idx + j * 3 + channel;
+                h_shs[dest_idx] = val;
+            }
+        }
+
+        // Copy DC into h_shs[0,1,2] for completeness
+        h_shs[base_idx + 0] = h_dc[i*3 + 0];
+        h_shs[base_idx + 1] = h_dc[i*3 + 1];
+        h_shs[base_idx + 2] = h_dc[i*3 + 2];
+    }
+
+    in.close();
+    std::cout << "PLY Loaded." << std::endl;
+
+    return GaussianScene(sh_degree, h_points, h_scales, h_rotations, h_opacities, h_dc, h_shs);
 }
