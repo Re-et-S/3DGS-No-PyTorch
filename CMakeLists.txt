@@ -33,13 +33,12 @@ endif()
 
 project(GaussianSplattingCUDA LANGUAGES CXX CUDA)
 
+option(BUILD_VIEWER "Build the standalone viewer (requires GUI libs)" ON)
+
 set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_INCLUDES 0)
 set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_LIBRARIES 0)
 set(CMAKE_CUDA_USE_RESPONSE_FILE_FOR_OBJECTS 0)
 
-# ==============================================================================
-#  CONFIGURATION & FLAGS
-# ==============================================================================
 set(CMAKE_CXX_STANDARD  17)
 set(CMAKE_CUDA_STANDARD 17)
 
@@ -48,9 +47,6 @@ if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS}  -O3")
 endif()
 
-# ==============================================================================
-#  FIND PACKAGES
-# ==============================================================================
 find_package(CUDAToolkit REQUIRED)
 
 # GLM (Header Only)
@@ -63,10 +59,6 @@ if(NOT GLM_INCLUDE_DIR)
     message(FATAL_ERROR "GLM not found! Please install libglm-dev.")
 endif()
 
-# ==============================================================================
-#  SOURCE FILES
-# ==============================================================================
-# 1. Include Directories
 include_directories(
     ${CMAKE_SOURCE_DIR}/include 
     ${GLM_INCLUDE_DIR}
@@ -74,23 +66,48 @@ include_directories(
 )
 
 # 2. Glob Sources
-file(GLOB_RECURSE SOURCES 
+file(GLOB_RECURSE ALL_SOURCES 
     "${CMAKE_SOURCE_DIR}/src/*.cpp" 
     "${CMAKE_SOURCE_DIR}/src/*.cu"
 )
 
-if(NOT SOURCES)
+set(VIEWER_ENTRY "${CMAKE_SOURCE_DIR}/src/viewer.cu")
+set(TRAIN_ENTRY  "${CMAKE_SOURCE_DIR}/src/train.cu")
+
+set(SHARED_SOURCES ${ALL_SOURCES})
+list(REMOVE_ITEM SHARED_SOURCES ${VIEWER_ENTRY} ${TRAIN_ENTRY})
+
+if(NOT ALL_SOURCES)
     message(FATAL_ERROR "No source files found in ${CMAKE_SOURCE_DIR}/src.")
 endif()
 
-# ==============================================================================
-#  TARGETS
-# ==============================================================================
 add_executable(train_app 
-    ${SOURCES}
+    ${TRAIN_ENTRY}
+    ${SHARED_SOURCES}
 )
 
 target_link_libraries(train_app 
     PRIVATE 
     CUDA::cudart
 )
+
+if(BUILD_VIEWER)
+    message(STATUS "Building Viewer App...")
+
+    find_package(OpenGL REQUIRED)
+    find_package(glfw3 REQUIRED)
+    
+    add_subdirectory(external/imgui)
+
+    add_executable(view_app ${VIEWER_ENTRY} ${SHARED_SOURCES})
+
+    target_link_libraries(view_app 
+        PRIVATE 
+        CUDA::cudart 
+        imgui 
+        glfw 
+        OpenGL::GL
+    )
+
+    target_compile_definitions(view_app PUBLIC IS_VIEWER_APP)
+endif()

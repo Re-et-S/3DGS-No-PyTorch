@@ -111,12 +111,12 @@ double Trainer::train_step(const TrainingView& view, const CudaBuffer<float>& d_
             scene.d_points.get(),
             scene.d_dc.get(),
             scene.d_shs.get(),
-            nullptr, // colors_precomp
+            nullptr,
             scene.d_opacities.get(),
             scene.d_scales.get(),
-            1.0f, // scale_modifier
+            1.0f,
             scene.d_rotations.get(),
-            nullptr, // cov3d_precomp
+            nullptr,
             d_viewmatrix.get(),
             d_projmatrix.get(),
             scene.d_cam_pos.get(),

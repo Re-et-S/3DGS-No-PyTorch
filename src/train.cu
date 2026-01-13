@@ -29,7 +29,6 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // 1. Construct Input Paths
     fs::path data_root(argv[1]);
     fs::path sparse_fs_path = data_root / "sparse" / "0";
     fs::path images_fs_path = data_root / "images";
@@ -37,7 +36,6 @@ int main(int argc, char** argv) {
     std::string sparse_path = sparse_fs_path.string();
     std::string images_path = images_fs_path.string();
 
-    // Validate Input Paths
     if (!fs::exists(sparse_fs_path)) {
         std::cerr << "Error: COLMAP sparse data not found at: " << sparse_path << std::endl;
         return -1;
@@ -47,7 +45,6 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // 2. Construct Output Directories
     std::string experiment_name = argv[2];
     fs::path output_root = "output";
     fs::path experiment_dir = output_root / experiment_name;
@@ -56,7 +53,6 @@ int main(int argc, char** argv) {
     fs::path renders_dir = experiment_dir / "training_renders";
     fs::path clouds_dir = experiment_dir / "point_clouds";
 
-    // Create directories
     try {
         if (!fs::exists(checkpoints_dir)) fs::create_directories(checkpoints_dir);
         if (!fs::exists(renders_dir)) fs::create_directories(renders_dir);
@@ -68,11 +64,9 @@ int main(int argc, char** argv) {
         return -1;
     }
 
-    // 3. Resume Logic
     std::string checkpoint_path = "";
     bool resume = false;
     
-    // Determine target checkpoint
     if (argc > 3) {
         // User specified a step (e.g., "step_500" or "step_500.ckpt")
         std::string step_arg = argv[3];
@@ -90,7 +84,6 @@ int main(int argc, char** argv) {
             std::cerr << "Warning: Requested checkpoint " << target_ckpt.string() << " not found. Starting from scratch." << std::endl;
         }
     } else {
-        // No specific step provided, check for 'latest.ckpt'
         fs::path latest_ckpt = checkpoints_dir / "latest.ckpt";
         if (fs::exists(latest_ckpt)) {
             checkpoint_path = latest_ckpt.string();
@@ -100,12 +93,8 @@ int main(int argc, char** argv) {
     }
 
 
-    // 1. Load Colmap data
-
     std::cout << "Loading data from root: " << data_root << std::endl;
     Dataset dataset(sparse_path, images_path);
-    
-    // 2. Setting up the scenes, Gaussians and gradients
     
     const auto& scene_points = dataset.getPoints();
     
