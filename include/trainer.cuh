@@ -19,13 +19,10 @@ public:
     // Image size
     int W, H;
     
-    // Persistent scratch buffers for the Rasterizer
-    // (Allocated once, reused every frame)
     CudaBuffer<char> geomBuffer;
     CudaBuffer<char> binningBuffer;
     CudaBuffer<char> imgBuffer;
 
-    // Persistent render targets (avoid reallocating every frame)
     CudaBuffer<float>  d_gt_image;
     CudaBuffer<float>  d_out_color;
     CudaBuffer<float>  d_bg_color;

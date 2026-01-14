@@ -19,6 +19,9 @@ public:
     size_t count;
     size_t size_bytes;
 
+    // Default constructor
+    CudaBuffer() : d_ptr(nullptr), count(0), size_bytes(0) {}
+    
     // Constructor: allocates GPU memory
     CudaBuffer(size_t count) : d_ptr(nullptr), count(count), size_bytes(count * sizeof(T)) {
         if (count > 0) {
@@ -65,6 +68,32 @@ public:
         std::swap(d_ptr, other.d_ptr);
         std::swap(count, other.count);
         std::swap(size_bytes, other.size_bytes);
+    }
+
+    void resize(size_t new_count, bool clear_memory = false) {
+        if (new_count == count) {
+            if (clear_memory && d_ptr) {
+                CUDA_CHECK(cudaMemset(d_ptr, 0, size_bytes));
+            }
+            return;
+        }
+
+        // Free old memory
+        if (d_ptr) {
+            CUDA_CHECK(cudaFree(d_ptr));
+            d_ptr = nullptr;
+        }
+
+        count = new_count;
+        size_bytes = new_count * sizeof(T);
+
+        // Allocate new memory
+        if (new_count > 0) {
+            CUDA_CHECK(cudaMalloc((void**)&d_ptr, size_bytes));
+            if (clear_memory) {
+                CUDA_CHECK(cudaMemset(d_ptr, 0, size_bytes));
+            }
+        }
     }
 
     void clear() {
