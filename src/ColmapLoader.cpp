@@ -280,26 +280,18 @@ void ColmapLoader::visualize(uint32_t image_id, const std::string& output_file) 
 }
 
 glm::mat4 ColmapLoader::buildViewMatrix(const ColmapImage& image) {
-        // 1. Get R_w2c (rotation) and t_w2c (translation)
+
         const glm::dmat3& R_w2c = glm::mat3_cast(image.qvec);
         const glm::dvec3& t_w2c = image.tvec;
 
-        // 2. Construct 4x4 World-to-Camera matrix [R | t]
-        //    We initialize the 4x4 matrix from the 3x3 rotation,
-        //    which correctly sets the upper-left 3x3 block.
         glm::dmat4 view_d = glm::dmat4(R_w2c);
     
-        //    Then, we set the 4th column (index 3) to the translation.
         view_d[3] = glm::dvec4(t_w2c, 1.0);
 
-        // 3. Apply coordinate system flip.
-        // (COLMAP: +Y Down, +Z In) -> (OpenGL: +Y Up, +Z Out)
         glm::mat4 C_flip = glm::mat4(1.0f);
         C_flip[1][1] = -1.0f; // Flip Y
         C_flip[2][2] = -1.0f; // Flip Z
 
-        // 4. Cast to float and return
-        //    Final transform is P_cam = C_flip * W_colmap * P_world
         return C_flip * glm::mat4(view_d);
 }
 

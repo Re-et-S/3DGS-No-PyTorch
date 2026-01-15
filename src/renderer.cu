@@ -90,14 +90,14 @@ void ViewerRenderer::render(
     auto binAlloc = [&](size_t s) { return binningBuffer.get(); };
     auto imgAlloc = [&](size_t s) { return imgBuffer.get(); };
 
-    glm::mat4 view_proj = view*proj;
-    glm::mat4 view_transpose = glm::transpose(view);
-    glm::mat4 proj_transpose = glm::transpose(view_proj);
+    glm::mat4 view_proj = proj*view;
+    // glm::mat4 view_transpose = glm::transpose(view);
+    // glm::mat4 proj_transpose = glm::transpose(view_proj);
     
-    CUDA_CHECK(cudaMemcpy(d_viewmatrix.get(), glm::value_ptr(view_transpose), 16 * sizeof(float), cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_projmatrix.get(), glm::value_ptr(proj_transpose), 16 * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_viewmatrix.get(), glm::value_ptr(view), 16 * sizeof(float), cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(d_projmatrix.get(), glm::value_ptr(view_proj), 16 * sizeof(float), cudaMemcpyHostToDevice));
     CUDA_CHECK(cudaMemcpy(d_cam_pos.get(), &cam_pos, sizeof(glm::vec3), cudaMemcpyHostToDevice));
-    
+
     int num_rendered = CudaRasterizer::Rasterizer::forward(
         geomAlloc, binAlloc, imgAlloc,
         scene.count, active_sh_degree, scene.max_sh_coeffs,

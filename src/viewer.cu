@@ -19,7 +19,7 @@
 GLFWwindow* window = nullptr;
 std::unique_ptr<GaussianScene> g_scene = nullptr;
 
-char g_plyPath[256] = "iteration_9000.ply";
+char g_plyPath[256] = "20250403_intel100G_CWDM.ply";
 std::string g_statusMessage = "Ready to load.";
 bool g_showDemoWindow = true;
 
@@ -111,7 +111,11 @@ void RenderUI() {
         if (ImGui::Button("Load .ply")) {
             HandleLoadPly();
         }
-        
+
+        g_statusMessage = "Centered moving to  (" + 
+            std::to_string(g_camera.Position.x) + ", " + 
+            std::to_string(g_camera.Position.y) + ", " + 
+            std::to_string(g_camera.Position.z) + ")";
         // Status Display
         ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "%s", g_statusMessage.c_str());
 
