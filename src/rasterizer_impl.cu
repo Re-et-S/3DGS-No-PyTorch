@@ -279,14 +279,6 @@ int CudaRasterizer::Rasterizer::forward(
 		antialiasing
 	), debug)
 
-	{
-		uint32_t touched_debug[32];
-		CHECK_CUDA(cudaMemcpy(touched_debug, geomState.tiles_touched, 32 * sizeof(uint32_t), cudaMemcpyDeviceToHost), debug);
-		printf("DEBUG: tiles_touched[0..31]: ");
-		for(int i=0; i<32; ++i) printf("%d ", touched_debug[i]);
-		printf("\n");
-	}
-
 	// Compute prefix sum over full list of touched tile counts by Gaussians
 	// E.g., [2, 3, 0, 2, 1] -> [2, 5, 5, 7, 8]
 	CHECK_CUDA(cub::DeviceScan::InclusiveSum(geomState.scanning_space, geomState.scan_size, geomState.tiles_touched, geomState.point_offsets, P), debug)
@@ -294,7 +286,6 @@ int CudaRasterizer::Rasterizer::forward(
 	// Retrieve total number of Gaussian instances to launch and resize aux buffers
 	int num_rendered;
 	CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug);
-	printf("DEBUG: num_rendered = %d\n", num_rendered);
 
 	size_t binning_chunk_size = required<BinningState>(num_rendered);
 	char* binning_chunkptr = binningBuffer(binning_chunk_size);
