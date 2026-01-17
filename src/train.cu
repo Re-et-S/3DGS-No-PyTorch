@@ -49,10 +49,62 @@ __global__ void alignmentCheckKernel(float* float_ptr) {
     }
 }
 
+__global__ void debug_glm_ops() {
+    printf("=== GLM Debug Unit Test ===\n");
+
+    // 1. Setup Test Data (Identity Rotation, Simple Scale)
+    glm::vec3 scale(1.0f, 2.0f, 3.0f); // exp(1)=2.71, exp(2)=7.38, exp(3)=20.08
+    float mod = 1.0f;
+    
+    // 2. Construct Matrix S (Scale)
+    glm::mat3 S(1.0f);
+    S[0][0] = mod * expf(scale.x);
+    S[1][1] = mod * expf(scale.y);
+    S[2][2] = mod * expf(scale.z);
+
+    // 3. Construct Matrix R (Identity for simplicity)
+    glm::mat3 R(1.0f);
+
+    // 4. Perform Multiplication (The suspect)
+    glm::mat3 M = S * R;
+    // Note: GLM is Column-Major. 
+    // If S*R works, M[0][0] should be S[0][0].
+
+    printf("Input Scale X: %f -> Matrix S[0][0]: %f\n", scale.x, S[0][0]);
+    printf("Multiplication Result M[0][0]: %f\n", M[0][0]);
+
+    // 5. Test Transpose & Covariance
+    // Your original code did: transpose(M) * M
+    glm::mat3 Sigma_Old = glm::transpose(M) * M;
+    
+    // Standard 3DGS Math: M * transpose(M) (assuming M=RS) or similar
+    glm::mat3 Sigma_New = M * glm::transpose(M);
+
+    printf("Sigma_Old [0][0]: %f\n", Sigma_Old[0][0]);
+    printf("Sigma_New [0][0]: %f\n", Sigma_New[0][0]);
+
+    // 6. Memory Layout Check (Did the compiler pad the struct?)
+    printf("Size of glm::mat3: %lu bytes (Expected 36)\n", sizeof(glm::mat3));
+    
+    // 7. Pointer Arithmetic Check
+    // Create an array and see if stride matches size
+    glm::mat3 array[2];
+    size_t addr0 = (size_t)&array[0];
+    size_t addr1 = (size_t)&array[1];
+    printf("Array Stride: %lu bytes\n", addr1 - addr0);
+
+    if (sizeof(glm::mat3) != 36 || (addr1 - addr0) != 36) {
+        printf("CRITICAL: Alignment mismatch detected!\n");
+    } else {
+        printf("Alignment matches packed floats.\n");
+    }
+}
+
 int main(int argc, char** argv) {
     
     CudaBuffer<float> d_align_check(12);
     alignmentCheckKernel<<<1, 1>>>(d_align_check.get());
+    debug_glm_ops<<<1, 1>>>();
     cudaDeviceSynchronize();
 
     // 0. Argument Parsing & Setup
@@ -248,8 +300,8 @@ int main(int argc, char** argv) {
             trainer.get_current_render(h_render);
             fs::path filename = renders_dir / ("debug_step_" + std::to_string(i) + ".jpg");
             save_image_jpg(filename.string().c_str(), h_render, max_w, max_h, 90);
-            printf("Debug image saved to %s. Continuing training...\n", filename.string().c_str());
-            // break; // Disabled break to allow training to continue
+            printf("Debug image saved to %s. \n", filename.string().c_str());
+            break;
         }
 
         if (i % 5 == 0) {
