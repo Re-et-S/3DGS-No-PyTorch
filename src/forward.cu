@@ -27,6 +27,13 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 	glm::vec3 dir = pos - campos;
 	dir = dir / glm::length(dir);
 
+	if (idx == 0) {
+		printf("[CTX] computeColorFromSH idx=0\n");
+		printf("  pos: %f %f %f\n", pos.x, pos.y, pos.z);
+		printf("  campos: %f %f %f\n", campos.x, campos.y, campos.z);
+		printf("  dir: %f %f %f\n", dir.x, dir.y, dir.z);
+	}
+
     // Pointers to SH data
     glm::vec3* direct_color = ((glm::vec3*)dc) + idx;
     glm::vec3* sh = ((glm::vec3*)shs) + idx * max_coeffs;
@@ -82,7 +89,12 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 
     // Note: We clamp to 0.0 (Lower Bound), but NOT to 1.0 (Upper Bound).
     // The loss function handles over-saturation.
-	return glm::max(result, 0.0f);
+	glm::vec3 res = glm::max(result, 0.0f);
+	if (idx == 0) {
+		printf("  result (before clamp): %f %f %f\n", result.x, result.y, result.z);
+		printf("  result (final): %f %f %f\n", res.x, res.y, res.z);
+	}
+	return res;
 }
 
 // Forward version of 2D covariance matrix computation
@@ -315,8 +327,20 @@ __global__ void preprocessCUDA(int P, int D, int M,
 		cov3D = cov3Ds + idx * 6;
 	}
 
+	if (idx == 0) {
+		printf("[CTX] preprocessCUDA idx=0\n");
+		printf("  Scale: %f %f %f\n", scales[idx].x, scales[idx].y, scales[idx].z);
+		printf("  Rot: %f %f %f %f\n", rotations[idx].x, rotations[idx].y, rotations[idx].z, rotations[idx].w);
+		printf("  Cov3D: %f %f %f %f %f %f\n", cov3D[0], cov3D[1], cov3D[2], cov3D[3], cov3D[4], cov3D[5]);
+	}
+
 	// Compute 2D screen-space covariance matrix
 	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix, idx);
+
+	if (idx == 0) {
+		printf("  p_orig: %f %f %f\n", p_orig.x, p_orig.y, p_orig.z);
+		printf("  Cov2D: %f %f %f\n", cov.x, cov.y, cov.z);
+	}
 
 	constexpr float h_var = 0.3f;
 	const float det_cov = cov.x * cov.z - cov.y * cov.y;
@@ -373,6 +397,13 @@ __global__ void preprocessCUDA(int P, int D, int M,
 
 	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacity * h_convolution_scaling };
 
+	if (idx == 0) {
+		printf("  Opacity (raw): %f\n", opacities[idx]);
+		printf("  Opacity (sigmoid): %f\n", opacity);
+		printf("  h_convolution_scaling: %f\n", h_convolution_scaling);
+		printf("  Conic: %f %f %f\n", conic.x, conic.y, conic.z);
+		printf("  ConicOpacity: %f %f %f %f\n", conic_opacity[idx].x, conic_opacity[idx].y, conic_opacity[idx].z, conic_opacity[idx].w);
+	}
 
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 }
@@ -428,6 +459,11 @@ renderCUDA(
 
 	float expected_invdepth = 0.0f;
 
+	bool is_debug_pixel = (pix.x == W/2 && pix.y == H/2);
+	if (is_debug_pixel) {
+		printf("[CTX] renderCUDA Center Pixel (%d, %d)\n", pix.x, pix.y);
+	}
+
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
 	{
@@ -479,6 +515,10 @@ renderCUDA(
 			// Eq. (3) from 3D Gaussian splatting paper.
 			for (int ch = 0; ch < CHANNELS; ch++)
 				C[ch] += features[collected_id[j] * CHANNELS + ch] * alpha * T;
+
+			if (is_debug_pixel) {
+				printf("  GausID: %d, Alpha: %f, T: %f, Feat[0]: %f\n", collected_id[j], alpha, T, features[collected_id[j] * CHANNELS + 0]);
+			}
 
 			if(invdepth)
 			expected_invdepth += (1 / depths[collected_id[j]]) * alpha * T;
