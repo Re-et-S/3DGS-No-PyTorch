@@ -509,7 +509,7 @@ __global__ void preprocessCUDA(
 	const glm::vec4* rotations,
 	const float scale_modifier,
 	const float* proj,
-	const float* campos,
+	const glm::vec3* campos,
 	const float2* dL_dmean2D,
 	float* dL_dmeans,
 	float* dL_dcolor,
@@ -545,7 +545,7 @@ __global__ void preprocessCUDA(
     atomicAdd(dL_dmeans + 3 * idx + 1, dL_dmean.y);
     atomicAdd(dL_dmeans + 3 * idx + 2, dL_dmean.z);
 
-    glm::vec3 cam_pos_vec = { campos[0], campos[1], campos[2] };
+    glm::vec3 cam_pos_vec = *campos;
 
 	// Compute gradient updates due to computing colors from SHs
 	if (shs) {
@@ -743,7 +743,7 @@ void BACKWARD::preprocess(
 	const float* projmatrix,
 	const float focal_x, float focal_y,
 	const float tan_fovx, float tan_fovy,
-	const float* campos,
+	const glm::vec3* campos,
 	const float2* dL_dmean2D,
 	const float4* dL_dconic,
     float* dL_dopacity,
