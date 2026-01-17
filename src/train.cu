@@ -300,7 +300,7 @@ int main(int argc, char** argv) {
         // Debug: Check for NaNs
         checkNans(
             scene.count,
-            grads.d_dL_dmeans.get(),
+            grads.d_dL_dpoints.get(),
             grads.d_dL_dcov3Ds.get(),
             grads.d_dL_dshs.get(),
             grads.d_dL_dopacities.get(),

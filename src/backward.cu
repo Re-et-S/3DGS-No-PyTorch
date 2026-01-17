@@ -410,7 +410,7 @@ __global__ void computeCov2DCUDA(int P,
         // Use the new symmetric function to compute gradients for mean and 3D covariance
         float3 dL_dCov2D = { dL_dc_xx, dL_dc_xy, dL_dc_yy };
 
-        if (isnan(dL_dconic.x) || isnan(dL_dconic.y) || isnan(dL_dconic.z) || isnan(dL_dconic.w)) {
+        if (isnan(dL_dconic.x) || isnan(dL_dconic.y) || isnan(dL_dconic.z)) {
              printf("NaN detected in dL_dconic at idx %d: %f %f %f\n", idx, dL_dconic.x, dL_dconic.y, dL_dconic.z);
         }
 
