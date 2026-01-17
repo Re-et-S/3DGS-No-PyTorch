@@ -14,8 +14,46 @@
 
 namespace fs = std::filesystem;
 
+__global__ void alignmentCheckKernel(float* float_ptr) {
+    // Cast the float pointer to a vec3 pointer, just like your code does
+    glm::vec3* vec3_ptr = reinterpret_cast<glm::vec3*>(float_ptr);
+
+    printf("=== Alignment Verification ===\n");
+    printf("Size of float:      %lu bytes\n", sizeof(float));
+    printf("Size of glm::vec3:  %lu bytes\n", sizeof(glm::vec3));
+
+    // Check offsets for index 0 and index 1
+    // We expect index 1 to start at byte 12 (3 * 4 bytes)
+    size_t addr_float_0 = (size_t)&float_ptr[0];
+    size_t addr_float_3 = (size_t)&float_ptr[3]; // The start of the 2nd vector
+
+    size_t addr_vec3_0  = (size_t)&vec3_ptr[0];
+    size_t addr_vec3_1  = (size_t)&vec3_ptr[1]; // The start of the 2nd vector according to glm::vec3*
+
+    printf("Address float[0]:   %llu\n", (unsigned long long)addr_float_0);
+    printf("Address float[3]:   %llu (Expected start of 2nd vector)\n", (unsigned long long)addr_float_3);
+    printf("Address vec3[1]:    %llu (Actual start of 2nd vector)\n", (unsigned long long)addr_vec3_1);
+
+    long long stride_float = (long long)addr_float_3 - (long long)addr_float_0;
+    long long stride_vec3  = (long long)addr_vec3_1 - (long long)addr_vec3_0;
+
+    printf("Stride (float*3):   %lld bytes\n", stride_float);
+    printf("Stride (vec3*):     %lld bytes\n", stride_vec3);
+
+    if (stride_float != stride_vec3) {
+        printf("\nCRITICAL FAILURE: Mismatch detected! Your pointers are drifting.\n");
+        printf("Thread 1 reads from byte %lld, but data is at byte %lld.\n", stride_vec3, stride_float);
+    } else {
+        printf("\nAlignment is OK.\n");
+    }
+}
+
 int main(int argc, char** argv) {
     
+    CudaBuffer<float> d_align_check(12);
+    alignmentCheckKernel<<<1, 1>>>(d_align_check.get());
+    cudaDeviceSynchronize();
+
     // 0. Argument Parsing & Setup
     GaussianSplatting::TrainingConfig config;
     
