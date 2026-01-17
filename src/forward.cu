@@ -86,7 +86,7 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 }
 
 // Forward version of 2D covariance matrix computation
-__device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float* cov3D, const float* viewmatrix)
+__device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float* cov3D, const float* viewmatrix, int idx)
 {
 	// The following models the steps outlined by equations 29
 	// and 31 in "EWA Splatting" (Zwicker et al., 2002). 
@@ -120,6 +120,20 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
     
 	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T;
     //glm::mat3 cov = (T) * (Vrk) * glm::transpose(T);
+
+	if (idx < 5) {
+		printf("Gaussian %d Cov2D Details:\n", idx);
+		printf("  J: [%f %f %f | %f %f %f | %f %f %f]\n",
+			J[0][0], J[1][0], J[2][0], J[0][1], J[1][1], J[2][1], J[0][2], J[1][2], J[2][2]);
+		printf("  W: [%f %f %f | %f %f %f | %f %f %f]\n",
+			W[0][0], W[1][0], W[2][0], W[0][1], W[1][1], W[2][1], W[0][2], W[1][2], W[2][2]);
+		printf("  T: [%f %f %f | %f %f %f | %f %f %f]\n",
+			T[0][0], T[1][0], T[2][0], T[0][1], T[1][1], T[2][1], T[0][2], T[1][2], T[2][2]);
+		printf("  Vrk: [%f %f %f | %f %f %f | %f %f %f]\n",
+			Vrk[0][0], Vrk[1][0], Vrk[2][0], Vrk[0][1], Vrk[1][1], Vrk[2][1], Vrk[0][2], Vrk[1][2], Vrk[2][2]);
+		printf("  Cov: [%f %f %f | %f %f %f | %f %f %f]\n",
+			cov[0][0], cov[1][0], cov[2][0], cov[0][1], cov[1][1], cov[2][1], cov[0][2], cov[1][2], cov[2][2]);
+	}
 
 	return { float(cov[0][0]), float(cov[0][1]), float(cov[1][1]) };
 
@@ -267,7 +281,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	}
 
 	// Compute 2D screen-space covariance matrix
-	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
+	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix, idx);
 
 	constexpr float h_var = 0.3f;
 	const float det_cov = cov.x * cov.z - cov.y * cov.y;
