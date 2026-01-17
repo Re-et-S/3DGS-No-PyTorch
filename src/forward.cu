@@ -18,25 +18,25 @@ namespace cg = cooperative_groups;
 
 // Forward method for converting the input spherical harmonics
 // coefficients of each Gaussian to a simple RGB color.
-__device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const glm::vec3* means, glm::vec3 campos, const float* dc, const float* shs, bool* clamped)
+__device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const float* means, glm::vec3 campos, const float* dc, const float* shs, bool* clamped)
 {
 	// The implementation is loosely based on code for 
 	// "Differentiable Point-Based Radiance Fields for 
 	// Efficient View Synthesis" by Zhang et al. (2022)
-	glm::vec3 pos = means[idx];
+	glm::vec3 pos = { means[3 * idx + 0], means[3 * idx + 1], means[3 * idx + 2] };
 	glm::vec3 dir = pos - campos;
 	dir = dir / glm::length(dir);
 
     // Pointers to SH data
-    glm::vec3* direct_color = ((glm::vec3*)dc) + idx;
-    glm::vec3* sh = ((glm::vec3*)shs) + idx * max_coeffs;
+    const float* direct_color_ptr = dc + 3 * idx;
+    const float* sh_ptr = shs + 3 * max_coeffs * idx;
 
     // 1. Compute Base Color (DC)
 
     glm::vec3 result = {
-        SH_C0 * direct_color[0].x,
-        SH_C0 * direct_color[0].y,
-        SH_C0 * direct_color[0].z
+        SH_C0 * direct_color_ptr[0],
+        SH_C0 * direct_color_ptr[1],
+        SH_C0 * direct_color_ptr[2]
     };
 
 	if (deg > 0)
@@ -45,29 +45,29 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 		float y = dir.y;
 		float z = dir.z;
         
-		result = result - SH_C1 * y * sh[1] + SH_C1 * z * sh[2] - SH_C1 * x * sh[3];
+		result = result - SH_C1 * y * glm::vec3(sh_ptr[3], sh_ptr[4], sh_ptr[5]) + SH_C1 * z * glm::vec3(sh_ptr[6], sh_ptr[7], sh_ptr[8]) - SH_C1 * x * glm::vec3(sh_ptr[9], sh_ptr[10], sh_ptr[11]);
 
 		if (deg > 1)
 		{
 			float xx = x * x, yy = y * y, zz = z * z;
 			float xy = x * y, yz = y * z, xz = x * z;
 			result = result +
-				SH_C2[0] * xy * sh[4] +
-				SH_C2[1] * yz * sh[5] +
-				SH_C2[2] * (2.0f * zz - xx - yy) * sh[6] +
-				SH_C2[3] * xz * sh[7] +
-				SH_C2[4] * (xx - yy) * sh[8];
+				SH_C2[0] * xy * glm::vec3(sh_ptr[12], sh_ptr[13], sh_ptr[14]) +
+				SH_C2[1] * yz * glm::vec3(sh_ptr[15], sh_ptr[16], sh_ptr[17]) +
+				SH_C2[2] * (2.0f * zz - xx - yy) * glm::vec3(sh_ptr[18], sh_ptr[19], sh_ptr[20]) +
+				SH_C2[3] * xz * glm::vec3(sh_ptr[21], sh_ptr[22], sh_ptr[23]) +
+				SH_C2[4] * (xx - yy) * glm::vec3(sh_ptr[24], sh_ptr[25], sh_ptr[26]);
 
 			if (deg > 2)
 			{
 				result = result +
-					SH_C3[0] * y * (3.0f * xx - yy) * sh[9] +
-					SH_C3[1] * xy * z * sh[10] +
-					SH_C3[2] * y * (4.0f * zz - xx - yy) * sh[11] +
-					SH_C3[3] * z * (2.0f * zz - 3.0f * xx - 3.0f * yy) * sh[12] +
-					SH_C3[4] * x * (4.0f * zz - xx - yy) * sh[13] +
-					SH_C3[5] * z * (xx - yy) * sh[14] +
-					SH_C3[6] * x * (xx - 3.0f * yy) * sh[15];
+					SH_C3[0] * y * (3.0f * xx - yy) * glm::vec3(sh_ptr[27], sh_ptr[28], sh_ptr[29]) +
+					SH_C3[1] * xy * z * glm::vec3(sh_ptr[30], sh_ptr[31], sh_ptr[32]) +
+					SH_C3[2] * y * (4.0f * zz - xx - yy) * glm::vec3(sh_ptr[33], sh_ptr[34], sh_ptr[35]) +
+					SH_C3[3] * z * (2.0f * zz - 3.0f * xx - 3.0f * yy) * glm::vec3(sh_ptr[36], sh_ptr[37], sh_ptr[38]) +
+					SH_C3[4] * x * (4.0f * zz - xx - yy) * glm::vec3(sh_ptr[39], sh_ptr[40], sh_ptr[41]) +
+					SH_C3[5] * z * (xx - yy) * glm::vec3(sh_ptr[42], sh_ptr[43], sh_ptr[44]) +
+					SH_C3[6] * x * (xx - 3.0f * yy) * glm::vec3(sh_ptr[45], sh_ptr[46], sh_ptr[47]);
 			}
 		}
 	}
@@ -172,9 +172,9 @@ __device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 r
 template<int C>
 __global__ void preprocessCUDA(int P, int D, int M,
 	const float* orig_points,
-	const glm::vec3* scales,
+	const float* scales,
 	const float scale_modifier,
-	const glm::vec4* rotations,
+	const float* rotations,
 	const float* opacities,
     const float* dc,
 	const float* shs,
@@ -183,7 +183,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	const float* colors_precomp,
 	const float* viewmatrix,
 	const float* projmatrix,
-	const glm::vec3* cam_pos,
+	const float* cam_pos,
 	const int W, int H,
 	const float tan_fovx, float tan_fovy,
 	const float focal_x, float focal_y,
@@ -227,7 +227,9 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	}
 	else
 	{
-		computeCov3D(scales[idx], scale_modifier, rotations[idx], cov3Ds + idx * 6);
+		glm::vec3 scale = { scales[3 * idx + 0], scales[3 * idx + 1], scales[3 * idx + 2] };
+		glm::vec4 rot = { rotations[4 * idx + 0], rotations[4 * idx + 1], rotations[4 * idx + 2], rotations[4 * idx + 3] };
+		computeCov3D(scale, scale_modifier, rot, cov3Ds + idx * 6);
 		cov3D = cov3Ds + idx * 6;
 	}
 
@@ -272,7 +274,8 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	// spherical harmonics coefficients to RGB color.
 	if (colors_precomp == nullptr)
 	{
-		glm::vec3 result = computeColorFromSH(idx, D, M, (glm::vec3*)orig_points, *cam_pos, dc, shs, clamped);
+		glm::vec3 cam_pos_vec = { cam_pos[0], cam_pos[1], cam_pos[2] };
+		glm::vec3 result = computeColorFromSH(idx, D, M, orig_points, cam_pos_vec, dc, shs, clamped);
 		rgb[idx * C + 0] = result.x;
 		rgb[idx * C + 1] = result.y;
 		rgb[idx * C + 2] = result.z;
@@ -453,9 +456,9 @@ void FORWARD::render(
 
 void FORWARD::preprocess(int P, int D, int M,
 	const float* means3D,
-	const glm::vec3* scales,
+	const float* scales,
 	const float scale_modifier,
-	const glm::vec4* rotations,
+	const float* rotations,
 	const float* opacities,
     const float* dc,
 	const float* shs,
@@ -464,7 +467,7 @@ void FORWARD::preprocess(int P, int D, int M,
 	const float* colors_precomp,
 	const float* viewmatrix,
 	const float* projmatrix,
-	const glm::vec3* cam_pos,
+	const float* cam_pos,
 	const int W, int H,
 	const float tan_fovx, float tan_fovy,
     const float focal_x, float focal_y,
