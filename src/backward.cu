@@ -410,18 +410,15 @@ __global__ void computeCov2DCUDA(int P,
         // Use the new symmetric function to compute gradients for mean and 3D covariance
         float3 dL_dCov2D = { dL_dc_xx, dL_dc_xy, dL_dc_yy };
 
-        if (idx == 0) {
-            printf("[CTX] computeCov2DCUDA idx=0\n");
-            printf("  dL_dconic: %f %f %f\n", dL_dconic.x, dL_dconic.y, dL_dconic.z);
-            printf("  dL_dCov2D: %f %f %f\n", dL_dCov2D.x, dL_dCov2D.y, dL_dCov2D.z);
+        if (isnan(dL_dconic.x) || isnan(dL_dconic.y) || isnan(dL_dconic.z) || isnan(dL_dconic.w)) {
+             printf("NaN detected in dL_dconic at idx %d: %f %f %f\n", idx, dL_dconic.x, dL_dconic.y, dL_dconic.z);
+        }
+
+        if (isnan(dL_dCov2D.x) || isnan(dL_dCov2D.y) || isnan(dL_dCov2D.z)) {
+             printf("NaN detected in dL_dCov2D at idx %d: %f %f %f\n", idx, dL_dCov2D.x, dL_dCov2D.y, dL_dCov2D.z);
         }
 
         computeCov2DGradient(mean, h_x, h_y, tan_fovx, tan_fovy, cov3D, view_matrix, dL_dCov2D, dL_dmeans + 3*idx, dL_dcov + 6*idx);
-
-        if (idx == 0) {
-            printf("  dL_dmean3D (Cov2D contrib): %f %f %f\n", dL_dmeans[3*idx+0], dL_dmeans[3*idx+1], dL_dmeans[3*idx+2]);
-            printf("  dL_dcov3D: %f %f %f ...\n", dL_dcov[6*idx+0], dL_dcov[6*idx+1], dL_dcov[6*idx+2]);
-        }
 
 	} else {
 		for (int i = 0; i < 6; i++)
@@ -545,12 +542,8 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
     dL_drots[2] = dL_dq.z;
     dL_drots[3] = dL_dq.w;
 
-    if (idx < 5) {
-        printf("[CTX] computeCov3D idx=%d\n", idx);
-        printf("  Rot (q): %f %f %f %f\n", q.x, q.y, q.z, q.w);
-        printf("  dL_dcov3D: %f %f %f\n", dL_dcov3D[0], dL_dcov3D[1], dL_dcov3D[2]);
-        printf("  dL_dscales: %f %f %f\n", dL_dscales[0], dL_dscales[1], dL_dscales[2]);
-        printf("  dL_drots: %f %f %f %f\n", dL_drots[0], dL_drots[1], dL_drots[2], dL_drots[3]);
+    if (isnan(dL_dscales[0]) || isnan(dL_dscales[1]) || isnan(dL_dscales[2])) {
+         printf("NaN detected in dL_dscales at idx %d\n", idx);
     }
 }
 
@@ -599,10 +592,12 @@ __global__ void preprocessCUDA(
 	dL_dmean.y = (proj[4] * m_w - proj[7] * mul1) * dL_dmean2D[idx].x + (proj[5] * m_w - proj[7] * mul2) * dL_dmean2D[idx].y;
 	dL_dmean.z = (proj[8] * m_w - proj[11] * mul1) * dL_dmean2D[idx].x + (proj[9] * m_w - proj[11] * mul2) * dL_dmean2D[idx].y;
 
-    if (idx == 0) {
-        printf("[CTX] preprocessCUDA (Backward) idx=0\n");
-        printf("  dL_dmean2D: %f %f\n", dL_dmean2D[idx].x, dL_dmean2D[idx].y);
-        printf("  dL_dmean (proj contrib): %f %f %f\n", dL_dmean.x, dL_dmean.y, dL_dmean.z);
+    if (isnan(dL_dmean2D[idx].x) || isnan(dL_dmean2D[idx].y)) {
+         printf("NaN detected in dL_dmean2D at idx %d: %f %f\n", idx, dL_dmean2D[idx].x, dL_dmean2D[idx].y);
+    }
+
+    if (isnan(dL_dmean.x) || isnan(dL_dmean.y) || isnan(dL_dmean.z)) {
+         printf("NaN detected in dL_dmean (proj) at idx %d\n", idx);
     }
 
 	// That's the second part of the mean gradient. Previous computation
@@ -610,11 +605,6 @@ __global__ void preprocessCUDA(
     atomicAdd(dL_dmeans + 3 * idx + 0, dL_dmean.x);
     atomicAdd(dL_dmeans + 3 * idx + 1, dL_dmean.y);
     atomicAdd(dL_dmeans + 3 * idx + 2, dL_dmean.z);
-
-    if (idx == 0) {
-        printf("  dL_dmeans (Accum): %f %f %f\n", dL_dmeans[3*idx+0], dL_dmeans[3*idx+1], dL_dmeans[3*idx+2]);
-        if (dL_dcolor) printf("  dL_dcolor: %f %f %f\n", dL_dcolor[3*idx+0], dL_dcolor[3*idx+1], dL_dcolor[3*idx+2]);
-    }
 
     glm::vec3 cam_pos_vec = *campos;
 

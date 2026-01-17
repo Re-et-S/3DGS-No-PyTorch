@@ -313,11 +313,6 @@ int main(int argc, char** argv) {
             fs::path filename = renders_dir / ("debug_step_" + std::to_string(i) + ".jpg");
             save_image_jpg(filename.string().c_str(), h_render, max_w, max_h, 90);
             printf("Debug image saved to %s. \n", filename.string().c_str());
-            // break; // Removed break for 5-step run
-        }
-
-        if (i == start_iteration + 5) {
-            printf("Running 5 steps complete. Exiting debug run.\n");
             break;
         }
 
