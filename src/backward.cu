@@ -234,9 +234,9 @@ __global__ void computeCov2DCUDA(int P,
 
     // RECOMPUTE W (VIEW MATRIX ROTATION)
     // Same unroll as forward pass
-    float W00 = view_matrix[0]; float W01 = view_matrix[4]; float W02 = view_matrix[8];
-    float W10 = view_matrix[1]; float W11 = view_matrix[5]; float W12 = view_matrix[9];
-    float W20 = view_matrix[2]; float W21 = view_matrix[6]; float W22 = view_matrix[10];
+    float W00 = view_matrix[0]; float W01 = view_matrix[4];
+    float W10 = view_matrix[1]; float W11 = view_matrix[5];
+    float W20 = view_matrix[2];
 
     // RECOMPUTE T = W * J
     float T00 = W00 * J00;
@@ -247,14 +247,11 @@ __global__ void computeCov2DCUDA(int P,
     float T11 = W11 * J11;
     float T12 = W10 * J02 + W11 * J12;
 
-    float T20 = W20 * J00;
-    float T21 = W21 * J11;
-    float T22 = W20 * J02 + W21 * J12;
+    // T20, T21, T22 are unused in Cov calculation
 
     // Load Vrk (3D Covariance) - Symmetric
     float V00 = cov3D[0]; float V01 = cov3D[1]; float V02 = cov3D[2];
                           float V11 = cov3D[3]; float V12 = cov3D[4];
-                                                float v22 = cov3D[5]; // note lower case v22 to match existing var names if needed, but I'll use V22.
     float V22 = cov3D[5];
 
     // RECOMPUTE Cov2D = T * V * T^T
@@ -367,13 +364,13 @@ __global__ void computeCov2DCUDA(int P,
         // B11 = A10*T01 + A11*T11
         // ...
 
-        float B00 = dL_dc_xx * T00 + dL_dc_xy * T10;
-        float B01 = dL_dc_xx * T01 + dL_dc_xy * T11;
-        float B02 = dL_dc_xx * T02 + dL_dc_xy * T12;
+        // float B00 = dL_dc_xx * T00 + dL_dc_xy * T10; // Inline to avoid warnings if unused
+        // float B01 = dL_dc_xx * T01 + dL_dc_xy * T11;
+        // float B02 = dL_dc_xx * T02 + dL_dc_xy * T12;
 
-        float B10 = dL_dc_xy * T00 + dL_dc_yy * T10;
-        float B11 = dL_dc_xy * T01 + dL_dc_yy * T11;
-        float B12 = dL_dc_xy * T02 + dL_dc_yy * T12;
+        // float B10 = dL_dc_xy * T00 + dL_dc_yy * T10;
+        // float B11 = dL_dc_xy * T01 + dL_dc_yy * T11;
+        // float B12 = dL_dc_xy * T02 + dL_dc_yy * T12;
 
         // dL_dV = T^T * B
         // (dL_dV)_ij = sum_k (T^T)_ik * B_kj = sum_k T_ki * B_kj
@@ -404,23 +401,33 @@ __global__ void computeCov2DCUDA(int P,
         //      (T00*T11 + T01*T10) V01 + (T00*T12 + T02*T10) V02 + (T01*T12 + T02*T11) V12.
 
         // Gradients:
-        // dL_dV00 = dL_dc_xx * (T00^2) + dL_dc_yy * (T10^2) + dL_dc_xy * (T00*T10)
-        dL_dcov[6*idx + 0] = dL_dc_xx * T00*T00 + dL_dc_yy * T10*T10 + dL_dc_xy * T00*T10;
+        // T is W*J. In forward pass, Cov = T^T * V * T.
+        // T_col0 = [T00, T10, T20]^T corresponds to X axis.
+        // T_col1 = [T01, T11, T21]^T corresponds to Y axis.
+
+        // dL_dV00
+        // Coeffs: dc_xx -> T00^2, dc_yy -> T01^2, dc_xy -> T00*T01
+        dL_dcov[6*idx + 0] = dL_dc_xx * T00*T00 + dL_dc_yy * T01*T01 + dL_dc_xy * T00*T01;
 
         // dL_dV11
-        dL_dcov[6*idx + 3] = dL_dc_xx * T01*T01 + dL_dc_yy * T11*T11 + dL_dc_xy * T01*T11;
+        // Coeffs: dc_xx -> T10^2, dc_yy -> T11^2, dc_xy -> T10*T11
+        dL_dcov[6*idx + 3] = dL_dc_xx * T10*T10 + dL_dc_yy * T11*T11 + dL_dc_xy * T10*T11;
 
         // dL_dV22
-        dL_dcov[6*idx + 5] = dL_dc_xx * T02*T02 + dL_dc_yy * T12*T12 + dL_dc_xy * T02*T12;
+        // Coeffs: dc_xx -> T20^2, dc_yy -> T21^2, dc_xy -> T20*T21
+        dL_dcov[6*idx + 5] = dL_dc_xx * T20*T20 + dL_dc_yy * T21*T21 + dL_dc_xy * T20*T21;
 
-        // dL_dV01
-        dL_dcov[6*idx + 1] = dL_dc_xx * 2*T00*T01 + dL_dc_yy * 2*T10*T11 + dL_dc_xy * (T00*T11 + T01*T10);
+        // dL_dV01 (Off diagonal, appears as 2*V01)
+        // Coeffs: dc_xx -> 2*T00*T10, dc_yy -> 2*T01*T11, dc_xy -> (T00*T11 + T10*T01)
+        dL_dcov[6*idx + 1] = dL_dc_xx * 2*T00*T10 + dL_dc_yy * 2*T01*T11 + dL_dc_xy * (T00*T11 + T10*T01);
 
         // dL_dV02
-        dL_dcov[6*idx + 2] = dL_dc_xx * 2*T00*T02 + dL_dc_yy * 2*T10*T12 + dL_dc_xy * (T00*T12 + T02*T10);
+        // Coeffs: dc_xx -> 2*T00*T20, dc_yy -> 2*T01*T21, dc_xy -> (T00*T21 + T20*T01)
+        dL_dcov[6*idx + 2] = dL_dc_xx * 2*T00*T20 + dL_dc_yy * 2*T01*T21 + dL_dc_xy * (T00*T21 + T20*T01);
 
         // dL_dV12
-        dL_dcov[6*idx + 4] = dL_dc_xx * 2*T01*T02 + dL_dc_yy * 2*T11*T12 + dL_dc_xy * (T01*T12 + T02*T11);
+        // Coeffs: dc_xx -> 2*T10*T20, dc_yy -> 2*T11*T21, dc_xy -> (T10*T21 + T20*T11)
+        dL_dcov[6*idx + 4] = dL_dc_xx * 2*T10*T20 + dL_dc_yy * 2*T11*T21 + dL_dc_xy * (T10*T21 + T20*T11);
 
 	} else {
 		for (int i = 0; i < 6; i++)
@@ -491,7 +498,7 @@ __global__ void computeCov2DCUDA(int P,
 	float dL_dtz = -h_x * tz2 * dL_dJ00 - h_y * tz2 * dL_dJ11 + (2 * h_x * t.x) * tz3 * dL_dJ02 + (2 * h_y * t.y) * tz3 * dL_dJ12;
 
     if (idx < 5) {
-        printf("Gaussian %d BACKWARD DEBUG:\n", idx);
+        printf("Gaussian %d BACKWARD DEBUG:\n", (int)idx);
         printf("  dL_dCov2D: %f %f %f\n", dL_dc_xx, dL_dc_xy, dL_dc_yy);
         printf("  dL_dT row0: %f %f %f\n", dL_dT00, dL_dT01, dL_dT02);
         printf("  dL_dJ: J00=%f J02=%f J11=%f J12=%f\n", dL_dJ00, dL_dJ02, dL_dJ11, dL_dJ12);

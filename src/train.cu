@@ -248,8 +248,8 @@ int main(int argc, char** argv) {
             trainer.get_current_render(h_render);
             fs::path filename = renders_dir / ("debug_step_" + std::to_string(i) + ".jpg");
             save_image_jpg(filename.string().c_str(), h_render, max_w, max_h, 90);
-            printf("Debug image saved to %s. Exiting.\n", filename.string().c_str());
-            break;
+            printf("Debug image saved to %s. Continuing training...\n", filename.string().c_str());
+            // break; // Disabled break to allow training to continue
         }
 
         if (i % 5 == 0) {
