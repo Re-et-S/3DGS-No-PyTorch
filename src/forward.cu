@@ -88,56 +88,86 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 // Forward version of 2D covariance matrix computation
 __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float* cov3D, const float* viewmatrix, int idx)
 {
-	// The following models the steps outlined by equations 29
-	// and 31 in "EWA Splatting" (Zwicker et al., 2002). 
-	// Additionally considers aspect / scaling of viewport.
-	// Transposes used to account for row-/column-major conventions.
-	float3 t = transformPoint4x3(mean, viewmatrix);
+    float3 t = transformPoint4x3(mean, viewmatrix);
 
-	const float limx = 1.3f * tan_fovx;
-	const float limy = 1.3f * tan_fovy;
-	const float txtz = t.x / t.z;
-	const float tytz = t.y / t.z;
-	t.x = min(limx, max(-limx, txtz)) * t.z;
-	t.y = min(limy, max(-limy, tytz)) * t.z;
+    const float limx = 1.3f * tan_fovx;
+    const float limy = 1.3f * tan_fovy;
+    const float txtz = t.x / t.z;
+    const float tytz = t.y / t.z;
+    t.x = min(limx, max(-limx, txtz)) * t.z;
+    t.y = min(limy, max(-limy, tytz)) * t.z;
 
-	glm::mat3 J = glm::mat3(
-		focal_x / t.z, 0.0f, -(focal_x * t.x) / (t.z * t.z),
-		0.0f, focal_y / t.z, -(focal_y * t.y) / (t.z * t.z),
-		0, 0, 0);
+    // 1. Unroll J (Jacobian) components explicitly
+    // J = [ J00  0   J02 ]
+    //     [  0  J11  J12 ]
+    //     [  0   0    0  ]
+    float J00 = focal_x / t.z;
+    float J02 = -(focal_x * t.x) / (t.z * t.z);
+    float J11 = focal_y / t.z;
+    float J12 = -(focal_y * t.y) / (t.z * t.z);
+
+    // 2. Unroll W (View Matrix Rotation) explicitly
+    // W is stored column-major in viewmatrix, but we access elements directly
+    float W00 = viewmatrix[0]; float W01 = viewmatrix[4]; float W02 = viewmatrix[8];
+    float W10 = viewmatrix[1]; float W11 = viewmatrix[5]; float W12 = viewmatrix[9];
+    float W20 = viewmatrix[2]; float W21 = viewmatrix[6]; float W22 = viewmatrix[10];
+
+    // 3. Compute T = W * J explicitly
+    // Since J has many zeros, we optimize:
+    // T_col0 = W * J_col0 = W * [J00, 0, 0]^T
+    // T_col1 = W * J_col1 = W * [0, J11, 0]^T
+    // T_col2 = W * J_col2 = W * [J02, J12, 0]^T
     
-	glm::mat3 W = glm::mat3(
-		viewmatrix[0], viewmatrix[4], viewmatrix[8],
-		viewmatrix[1], viewmatrix[5], viewmatrix[9],
-		viewmatrix[2], viewmatrix[6], viewmatrix[10]);
+    float T00 = W00 * J00;
+    float T01 = W01 * J11;
+    float T02 = W00 * J02 + W01 * J12;
 
-	glm::mat3 T = W * J;
+    float T10 = W10 * J00;
+    float T11 = W11 * J11;
+    float T12 = W10 * J02 + W11 * J12;
 
-	glm::mat3 Vrk = glm::mat3(
-		cov3D[0], cov3D[1], cov3D[2],
-		cov3D[1], cov3D[3], cov3D[4],
-		cov3D[2], cov3D[4], cov3D[5]);
+    float T20 = W20 * J00;
+    float T21 = W21 * J11;
+    float T22 = W20 * J02 + W21 * J12;
+
+    // 4. Load Vrk (3D Covariance) - Symmetric
+    float V00 = cov3D[0]; float V01 = cov3D[1]; float V02 = cov3D[2];
+                          float V11 = cov3D[3]; float V12 = cov3D[4];
+                                                float V22 = cov3D[5];
+
+    // 5. Compute Cov2D = T^T * V * T
+    // We only need the upper 2x2 of the result (Cov2D is 2x2)
+    // cov.x = (T row 0) * V * (T row 0)
+    // cov.y = (T row 0) * V * (T row 1)
+    // cov.z = (T row 1) * V * (T row 1)
     
-	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T;
-    //glm::mat3 cov = (T) * (Vrk) * glm::transpose(T);
+    auto compute_quadratic = [&](float a, float b, float c) {
+        return a*a*V00 + b*b*V11 + c*c*V22
+             + 2.0f*(a*b*V01 + a*c*V02 + b*c*V12);
+    };
+
+    auto compute_bilinear = [&](float a1, float b1, float c1, float a2, float b2, float c2) {
+        return a1*a2*V00 + b1*b2*V11 + c1*c2*V22
+             + (a1*b2 + a2*b1)*V01 + (a1*c2 + a2*c1)*V02 + (b1*c2 + b2*c1)*V12;
+    };
+
+    float cov_x = compute_quadratic(T00, T10, T20);
+    float cov_y = compute_bilinear(T00, T10, T20, T01, T11, T21);
+    float cov_z = compute_quadratic(T01, T11, T21);
 
 	if (idx < 5) {
-		printf("Gaussian %d Cov2D Details:\n", idx);
-		printf("  J: [%f %f %f | %f %f %f | %f %f %f]\n",
-			J[0][0], J[1][0], J[2][0], J[0][1], J[1][1], J[2][1], J[0][2], J[1][2], J[2][2]);
-		printf("  W: [%f %f %f | %f %f %f | %f %f %f]\n",
-			W[0][0], W[1][0], W[2][0], W[0][1], W[1][1], W[2][1], W[0][2], W[1][2], W[2][2]);
-		printf("  T: [%f %f %f | %f %f %f | %f %f %f]\n",
-			T[0][0], T[1][0], T[2][0], T[0][1], T[1][1], T[2][1], T[0][2], T[1][2], T[2][2]);
-		printf("  Vrk: [%f %f %f | %f %f %f | %f %f %f]\n",
-			Vrk[0][0], Vrk[1][0], Vrk[2][0], Vrk[0][1], Vrk[1][1], Vrk[2][1], Vrk[0][2], Vrk[1][2], Vrk[2][2]);
-		printf("  Cov: [%f %f %f | %f %f %f | %f %f %f]\n",
-			cov[0][0], cov[1][0], cov[2][0], cov[0][1], cov[1][1], cov[2][1], cov[0][2], cov[1][2], cov[2][2]);
-	}
+        printf("Gaussian %d DEBUG:\n", idx);
+        printf("  Mean3D: %f %f %f\n", mean.x, mean.y, mean.z);
+        printf("  t (view): %f %f %f\n", t.x, t.y, t.z);
+        printf("  J: J00=%f J11=%f J02=%f J12=%f\n", J00, J11, J02, J12);
+        printf("  T row0: %f %f %f\n", T00, T01, T02);
+        printf("  T row1: %f %f %f\n", T10, T11, T12);
+        printf("  T row2: %f %f %f\n", T20, T21, T22);
+        printf("  Vrk: %f %f %f | %f %f %f\n", V00, V01, V02, V11, V12, V22);
+        printf("  Cov2D: %f %f %f\n", cov_x, cov_y, cov_z);
+    }
 
-	return { float(cov[0][0]), float(cov[0][1]), float(cov[1][1]) };
-
-
+    return { cov_x, cov_y, cov_z };
 }
 
 // Forward method for converting scale and rotation properties of each
