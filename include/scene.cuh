@@ -5,7 +5,7 @@
 #include "cuda_buffer.cuh"
 #include "nanoflann.hpp"
 
-const float SH_C0 = 0.28209479f; // 1 / (2 * sqrt(PI))
+const float SH_C0_INIT = 0.28209479f; // 1 / (2 * sqrt(PI))
 const float SAFE_EPS = 1e-10f;
 
 class GaussianScene {
@@ -283,9 +283,9 @@ inline void initGaussians(const std::vector<ColmapPoint3D>& colmap_points,
 
         // Inverse of: Color = 0.5 + (DC * C0)
         // DC = (Color - 0.5) / C0
-        h_dc[sh_base_idx + 0] = (color_norm.x - 0.5f) / SH_C0; // R
-        h_dc[sh_base_idx + 1] = (color_norm.y - 0.5f) / SH_C0; // G
-        h_dc[sh_base_idx + 2] = (color_norm.z - 0.5f) / SH_C0; // B
+        h_dc[sh_base_idx + 0] = (color_norm.x - 0.5f) / SH_C0_INIT; // R
+        h_dc[sh_base_idx + 1] = (color_norm.y - 0.5f) / SH_C0_INIT; // G
+        h_dc[sh_base_idx + 2] = (color_norm.z - 0.5f) / SH_C0_INIT; // B
         // All other 15 AC coefficients are already 0 from the vector initialization.
     }        
         // 5. Scale
