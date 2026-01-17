@@ -249,6 +249,11 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	// Invert covariance (EWA algorithm)
 	const float det = det_cov_plus_h_cov;
 
+	if (idx < 5) {
+		printf("Gaussian %d: tan_fov=(%f, %f) focal=(%f, %f) cov=(%f, %f, %f) det=%f\n",
+			idx, tan_fovx, tan_fovy, focal_x, focal_y, cov.x, cov.y, cov.z, det);
+	}
+
 	if (det <= 0.0f)
 		return;
 	float det_inv = 1.f / det;
