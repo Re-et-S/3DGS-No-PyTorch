@@ -45,8 +45,8 @@ namespace BACKWARD
 		const float* shs,
 		const bool* clamped,
         const float* opacities,
-		const float* scales,
-		const float* rotations,
+		const glm::vec3* scales,
+		const glm::vec4* rotations,
 		const float scale_modifier,
 		const float* cov3Ds,
 		const float* view,
@@ -62,8 +62,8 @@ namespace BACKWARD
 		float* dL_dcov3D,
         float* dL_ddc,
         float* dL_dsh,
-		float* dL_dscale,
-		float* dL_drot,
+		glm::vec3* dL_dscale,
+		glm::vec4* dL_drot,
         bool antialiasing);
 }
 
