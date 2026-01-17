@@ -244,6 +244,14 @@ int main(int argc, char** argv) {
         // Train Step
         double loss = trainer.train_step(*item.view, d_gt_image, active_sh_degree);
 
+        if (i == start_iteration) {
+            trainer.get_current_render(h_render);
+            fs::path filename = renders_dir / ("debug_step_" + std::to_string(i) + ".jpg");
+            save_image_jpg(filename.string().c_str(), h_render, max_w, max_h, 90);
+            printf("Debug image saved to %s. Exiting.\n", filename.string().c_str());
+            break;
+        }
+
         if (i % 5 == 0) {
             printf("Step %d | Loss: %f | Gaussians: %lu\n", i, loss, scene.count);
         }
