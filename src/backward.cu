@@ -271,9 +271,9 @@ __device__ void computeCov2DGradient(
     float tz2 = tz * tz;
     float tz3 = tz2 * tz;
 
-    float dL_dtx = x_grad_mul * -h_x * tz2 * dL_dJ02;
-    float dL_dty = y_grad_mul * -h_y * tz2 * dL_dJ12;
-    float dL_dtz = -h_x * tz2 * dL_dJ00 - h_y * tz2 * dL_dJ11 + (2 * h_x * t.x) * tz3 * dL_dJ02 + (2 * h_y * t.y) * tz3 * dL_dJ12;
+    float dL_dtx = x_grad_mul * -focal_x * tz2 * dL_dJ02;
+    float dL_dty = y_grad_mul * -focal_y * tz2 * dL_dJ12;
+    float dL_dtz = -focal_x * tz2 * dL_dJ00 - focal_y * tz2 * dL_dJ11 + (2 * focal_x * t.x) * tz3 * dL_dJ02 + (2 * focal_y * t.y) * tz3 * dL_dJ12;
 
     float3 dL_dmean = transformVec4x3Transpose({ dL_dtx, dL_dty, dL_dtz }, viewmatrix);
 
@@ -725,6 +725,81 @@ renderCUDA(
 			atomicAdd(&(dL_dopacity[global_id]), G * dL_dalpha * d_sigmoid);
 		}
 	}
+}
+
+void BACKWARD::preprocess(
+	int P, int D, int M,
+	const float* means3D,
+	const int* radii,
+    const float* dc,
+	const float* shs,
+	const bool* clamped,
+    const float* opacities,
+	const glm::vec3* scales,
+	const glm::vec4* rotations,
+	const float scale_modifier,
+	const float* cov3Ds,
+	const float* viewmatrix,
+	const float* projmatrix,
+	const float focal_x, float focal_y,
+	const float tan_fovx, float tan_fovy,
+	const float* campos,
+	const float2* dL_dmean2D,
+	const float4* dL_dconic,
+    float* dL_dopacity,
+	float* dL_dmean3D,
+	float* dL_dcolor,
+	float* dL_dcov3D,
+    float* dL_ddc,
+	float* dL_dsh,
+	glm::vec3* dL_dscale,
+	glm::vec4* dL_drot,
+    bool antialiasing)
+{
+	// Propagate gradients for the path of 2D conic matrix computation.
+	// Somewhat long, thus it is its own kernel rather than being part of
+	// "preprocess". When done, loss gradient w.r.t. 3D means has been
+	// modified and gradient w.r.t. 3D covariance matrix has been computed.
+	computeCov2DCUDA << <(P + 255) / 256, 256 >> > (
+		P,
+		means3D,
+		radii,
+		cov3Ds,
+		focal_x,
+		focal_y,
+		tan_fovx,
+		tan_fovy,
+		viewmatrix,
+        opacities,
+		dL_dconic,
+        dL_dopacity,
+		dL_dmean3D,
+		dL_dcov3D,
+        antialiasing);
+
+	// Propagate gradients for remaining steps: finish 3D mean gradients,
+	// propagate color gradients to SH (if desireD), propagate 3D covariance
+	// matrix gradients to scale and rotation.
+	preprocessCUDA<NUM_CHANNELS> << < (P + 255) / 256, 256 >> > (
+		P, D, M,
+		means3D,
+		radii,
+        dc,
+		shs,
+		clamped,
+		scales,
+		rotations,
+		scale_modifier,
+		projmatrix,
+		campos,
+		dL_dmean2D,
+		dL_dmean3D,
+		dL_dcolor,
+		dL_dcov3D,
+        dL_ddc,
+		dL_dsh,
+		dL_dscale,
+		dL_drot);
 }
 
 void BACKWARD::render(
