@@ -53,6 +53,13 @@ namespace FORWARD
 		float* out_color,
 		float* depths,
 		float* depth);
+
+	void verify_initial_covariances(
+		int P,
+		const glm::vec3* scales,
+		const glm::vec4* rotations,
+		const float scale_modifier
+	);
 }
 
 #endif // FORWARD_H_

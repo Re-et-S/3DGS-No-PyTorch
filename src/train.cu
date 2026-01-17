@@ -8,6 +8,7 @@
 #include "ImageIO.h"
 #include "plyIO.h"
 #include "config.h"
+#include "forward.cuh"
 
 #include <filesystem>
 #include <random>
@@ -164,6 +165,16 @@ int main(int argc, char** argv) {
     // Calculate scene extent for densification thresholds
     float scene_extent = compute_scene_extent(h_points);
     printf("Scene Extent: %f\n", scene_extent);
+
+    // Verify Covariance Initialization (Debug for CUDA 13.1 issue)
+    printf("Verifying Initial Covariances...\n");
+    FORWARD::verify_initial_covariances(
+        scene.count,
+        scene.d_scales.get(),
+        scene.d_rotations.get(),
+        1.0f // scale_modifier
+    );
+    printf("Verification complete.\n");
     
     // 3. Initialize trainer and optimizer
     Optimizer optimizer(P, M);

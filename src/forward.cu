@@ -166,6 +166,43 @@ __device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 r
 
 }
 
+__global__ void verifyCovarianceKernel(int P, const glm::vec3* scales, const glm::vec4* rotations, const float scale_modifier)
+{
+    auto idx = cg::this_grid().thread_rank();
+    if (idx >= P) return;
+
+    float cov3D[6];
+    computeCov3D(scales[idx], scale_modifier, rotations[idx], cov3D);
+
+    // Reconstruct matrix
+    // 0 1 2
+    // 1 3 4
+    // 2 4 5
+
+    // Check diagonals (Must be > 0 for non-degenerate scaling)
+    if (cov3D[0] <= 0 || cov3D[3] <= 0 || cov3D[5] <= 0) {
+        if (idx < 5) printf("ERROR Gaussian %d: Invalid Diagonals. %f %f %f\n", idx, cov3D[0], cov3D[3], cov3D[5]);
+    }
+
+    // Determinant
+    // a(ei - fh) - b(di - fg) + c(dh - eg)
+    float a = cov3D[0], b = cov3D[1], c = cov3D[2];
+    float d = cov3D[1], e = cov3D[3], f = cov3D[4];
+    float g = cov3D[2], h = cov3D[4], i = cov3D[5];
+
+    float det = a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g);
+
+    if (det <= 0) {
+        if (idx < 5) printf("ERROR Gaussian %d: Invalid Determinant %f. Scales: %f %f %f. Rot: %f %f %f %f\n",
+            idx, det, scales[idx].x, scales[idx].y, scales[idx].z, rotations[idx].x, rotations[idx].y, rotations[idx].z, rotations[idx].w);
+    }
+}
+
+void FORWARD::verify_initial_covariances(int P, const glm::vec3* scales, const glm::vec4* rotations, const float scale_modifier) {
+    verifyCovarianceKernel<<<(P + 255) / 256, 256>>>(P, scales, rotations, scale_modifier);
+    cudaDeviceSynchronize();
+}
+
 // Perform initial steps for each Gaussian prior to rasterization.
 template<int C>
 __global__ void preprocessCUDA(int P, int D, int M,
