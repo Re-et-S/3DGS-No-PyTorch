@@ -444,60 +444,100 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
 	float y = q.z;
 	float z = q.w;
 
-	glm::mat3 R = glm::mat3(
-		1.f - 2.f * (y * y + z * z), 2.f * (x * y - r * z), 2.f * (x * z + r * y),
-		2.f * (x * y + r * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z - r * x),
-		2.f * (x * z - r * y), 2.f * (y * z + r * x), 1.f - 2.f * (x * x + y * y)
-	);
+    // R matrix elements (Row-Major indices)
+    // R00 R01 R02
+    // R10 R11 R12
+    // R20 R21 R22
+	float R00 = 1.f - 2.f * (y * y + z * z);
+    float R01 = 2.f * (x * y - r * z);
+    float R02 = 2.f * (x * z + r * y);
 
-	glm::mat3 S = glm::mat3(1.0f);
+    float R10 = 2.f * (x * y + r * z);
+    float R11 = 1.f - 2.f * (x * x + z * z);
+    float R12 = 2.f * (y * z - r * x);
 
-    glm::vec3 s = {
-    mod * expf(scale.x),
-    mod * expf(scale.y),
-    mod * expf(scale.z) 
-    };
-	S[0][0] = s.x;
-	S[1][1] = s.y;
-	S[2][2] = s.z;
+    float R20 = 2.f * (x * z - r * y);
+    float R21 = 2.f * (y * z + r * x);
+    float R22 = 1.f - 2.f * (x * x + y * y);
 
-	glm::mat3 M = S * R;
+    float sx = mod * expf(scale.x);
+    float sy = mod * expf(scale.y);
+    float sz = mod * expf(scale.z);
+
+    // M = S * R (Scaling columns of R)
+    // M00 M01 M02
+    // M10 M11 M12
+    // M20 M21 M22
+	float M00 = R00 * sx;
+    float M01 = R01 * sy;
+    float M02 = R02 * sz;
+
+    float M10 = R10 * sx;
+    float M11 = R11 * sy;
+    float M12 = R12 * sz;
+
+    float M20 = R20 * sx;
+    float M21 = R21 * sy;
+    float M22 = R22 * sz;
 
 	const float* dL_dcov3D = dL_dcov3Ds + 6 * idx;
 
-	glm::vec3 dunc(dL_dcov3D[0], dL_dcov3D[3], dL_dcov3D[5]);
-	glm::vec3 ounc = 0.5f * glm::vec3(dL_dcov3D[1], dL_dcov3D[2], dL_dcov3D[4]);
+    // dL_dSigma Matrix (Symmetric)
+    // S00 S01 S02
+    // S10 S11 S12
+    // S20 S21 S22
+    float S00 = dL_dcov3D[0];
+    float S01 = 0.5f * dL_dcov3D[1];
+    float S02 = 0.5f * dL_dcov3D[2];
 
-	// Convert per-element covariance loss gradients to matrix form
-	glm::mat3 dL_dSigma = glm::mat3(
-		dL_dcov3D[0], 0.5f * dL_dcov3D[1], 0.5f * dL_dcov3D[2],
-		0.5f * dL_dcov3D[1], dL_dcov3D[3], 0.5f * dL_dcov3D[4],
-		0.5f * dL_dcov3D[2], 0.5f * dL_dcov3D[4], dL_dcov3D[5]
-	);
+    float S10 = 0.5f * dL_dcov3D[1];
+    float S11 = dL_dcov3D[3];
+    float S12 = 0.5f * dL_dcov3D[4];
+
+    float S20 = 0.5f * dL_dcov3D[2];
+    float S21 = 0.5f * dL_dcov3D[4];
+    float S22 = dL_dcov3D[5];
 
 	// Compute loss gradient w.r.t. matrix M
 	// dSigma_dM = 2 * M
-	glm::mat3 dL_dM = 2.0f * M * dL_dSigma;
-
-	glm::mat3 Rt = glm::transpose(R);
-	glm::mat3 dL_dMt = glm::transpose(dL_dM);
+    // dL/dM = 2 * dL/dSigma * M
+    // S is symmetric (dL/dSigma)
+    // Row 0 (S00, S01, S02) * Columns of M
+    float dL_dM00 = 2.0f * (S00 * M00 + S01 * M10 + S02 * M20);
+    float dL_dM01 = 2.0f * (S00 * M01 + S01 * M11 + S02 * M21);
+    float dL_dM02 = 2.0f * (S00 * M02 + S01 * M12 + S02 * M22);
+    // Row 1 (S10, S11, S12) * Columns of M
+    float dL_dM10 = 2.0f * (S10 * M00 + S11 * M10 + S12 * M20);
+    float dL_dM11 = 2.0f * (S10 * M01 + S11 * M11 + S12 * M21);
+    float dL_dM12 = 2.0f * (S10 * M02 + S11 * M12 + S12 * M22);
+    // Row 2 (S20, S21, S22) * Columns of M
+    float dL_dM20 = 2.0f * (S20 * M00 + S21 * M10 + S22 * M20);
+    float dL_dM21 = 2.0f * (S20 * M01 + S21 * M11 + S22 * M21);
+    float dL_dM22 = 2.0f * (S20 * M02 + S21 * M12 + S22 * M22);
 
 	// Gradients of loss w.r.t. scale
 	// Chain Rule: dL/dp = dL/ds * s
-	dL_dscales[0] = glm::dot(Rt[0], dL_dMt[0]) * s.x;
-	dL_dscales[1] = glm::dot(Rt[1], dL_dMt[1]) * s.y;
-	dL_dscales[2] = glm::dot(Rt[2], dL_dMt[2]) * s.z;
+    // dL_dscales[0] = (R00 * dL_dM00 + R10 * dL_dM10 + R20 * dL_dM20) * sx;
+    // dL_dscales[1] = (R01 * dL_dM01 + R11 * dL_dM11 + R21 * dL_dM21) * sy;
+    // dL_dscales[2] = (R02 * dL_dM02 + R12 * dL_dM12 + R22 * dL_dM22) * sz;
+	dL_dscales[0] = (R00 * dL_dM00 + R10 * dL_dM10 + R20 * dL_dM20) * sx;
+	dL_dscales[1] = (R01 * dL_dM01 + R11 * dL_dM11 + R21 * dL_dM21) * sy;
+	dL_dscales[2] = (R02 * dL_dM02 + R12 * dL_dM12 + R22 * dL_dM22) * sz;
 
-	dL_dMt[0] *= s.x;
-	dL_dMt[1] *= s.y;
-	dL_dMt[2] *= s.z;
+    // Scale gradients for M^T
+    // dL_dMt is Transpose(dL_dM) * S
+    // dL_dMt00 = dL_dM00 * sx;
+    // dL_dMt01 = dL_dM10 * sx; ...
+    float dL_dMt00 = dL_dM00 * sx; float dL_dMt01 = dL_dM10 * sx; float dL_dMt02 = dL_dM20 * sx;
+    float dL_dMt10 = dL_dM01 * sy; float dL_dMt11 = dL_dM11 * sy; float dL_dMt12 = dL_dM21 * sy;
+    float dL_dMt20 = dL_dM02 * sz; float dL_dMt21 = dL_dM12 * sz; float dL_dMt22 = dL_dM22 * sz;
 
 	// Gradients of loss w.r.t. normalized quaternion
 	glm::vec4 dL_dq;
-	dL_dq.x = 2 * z * (dL_dMt[0][1] - dL_dMt[1][0]) + 2 * y * (dL_dMt[2][0] - dL_dMt[0][2]) + 2 * x * (dL_dMt[1][2] - dL_dMt[2][1]);
-	dL_dq.y = 2 * y * (dL_dMt[1][0] + dL_dMt[0][1]) + 2 * z * (dL_dMt[2][0] + dL_dMt[0][2]) + 2 * r * (dL_dMt[1][2] - dL_dMt[2][1]) - 4 * x * (dL_dMt[2][2] + dL_dMt[1][1]);
-	dL_dq.z = 2 * x * (dL_dMt[1][0] + dL_dMt[0][1]) + 2 * r * (dL_dMt[2][0] - dL_dMt[0][2]) + 2 * z * (dL_dMt[1][2] + dL_dMt[2][1]) - 4 * y * (dL_dMt[2][2] + dL_dMt[0][0]);
-	dL_dq.w = 2 * r * (dL_dMt[0][1] - dL_dMt[1][0]) + 2 * x * (dL_dMt[2][0] + dL_dMt[0][2]) + 2 * y * (dL_dMt[1][2] + dL_dMt[2][1]) - 4 * z * (dL_dMt[1][1] + dL_dMt[0][0]);
+	dL_dq.x = 2 * z * (dL_dMt01 - dL_dMt10) + 2 * y * (dL_dMt20 - dL_dMt02) + 2 * x * (dL_dMt12 - dL_dMt21);
+	dL_dq.y = 2 * y * (dL_dMt10 + dL_dMt01) + 2 * z * (dL_dMt20 + dL_dMt02) + 2 * r * (dL_dMt12 - dL_dMt21) - 4 * x * (dL_dMt22 + dL_dMt11);
+	dL_dq.z = 2 * x * (dL_dMt10 + dL_dMt01) + 2 * r * (dL_dMt20 - dL_dMt02) + 2 * z * (dL_dMt12 + dL_dMt21) - 4 * y * (dL_dMt22 + dL_dMt00);
+	dL_dq.w = 2 * r * (dL_dMt01 - dL_dMt10) + 2 * x * (dL_dMt20 + dL_dMt02) + 2 * y * (dL_dMt12 + dL_dMt21) - 4 * z * (dL_dMt11 + dL_dMt00);
 
 	// Gradients of loss w.r.t. unnormalized quaternion
 	dL_drots[0] = dL_dq.x;
