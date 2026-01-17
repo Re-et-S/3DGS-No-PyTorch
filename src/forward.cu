@@ -207,14 +207,21 @@ __global__ void preprocessCUDA(int P, int D, int M,
 
 	// Perform near culling, quit if outside.
 	float3 p_view;
-	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, p_view))
+	if (!in_frustum(idx, orig_points, viewmatrix, projmatrix, prefiltered, p_view)) {
+		if (idx < 5) printf("Gaussian %d culled by in_frustum\n", idx);
 		return;
+	}
 
 	// Transform point by projecting
 	float3 p_orig = { orig_points[3 * idx], orig_points[3 * idx + 1], orig_points[3 * idx + 2] };
 	float4 p_hom = transformPoint4x4(p_orig, projmatrix);
 	float p_w = 1.0f / (p_hom.w + 0.0000001f);
 	float3 p_proj = { p_hom.x * p_w, p_hom.y * p_w, p_hom.z * p_w };
+
+	if (idx < 5) {
+		printf("Gaussian %d: p_orig=(%f, %f, %f) p_view=(%f, %f, %f) p_proj=(%f, %f, %f)\n",
+			idx, p_orig.x, p_orig.y, p_orig.z, p_view.x, p_view.y, p_view.z, p_proj.x, p_proj.y, p_proj.z);
+	}
 
 	// If 3D covariance matrix is precomputed, use it, otherwise compute
 	// from scaling and rotation parameters. 
@@ -262,6 +269,11 @@ __global__ void preprocessCUDA(int P, int D, int M,
     
 	uint2 rect_min, rect_max;
 	getRect(point_image, my_radius, rect_min, rect_max, grid);
+
+	if (idx < 5) {
+		printf("Gaussian %d: radius=%f rect_min=(%d, %d) rect_max=(%d, %d)\n",
+			idx, my_radius, rect_min.x, rect_min.y, rect_max.x, rect_max.y);
+	}
 
     if ((rect_max.x - rect_min.x) * (rect_max.y - rect_min.y) == 0)
 		return;
@@ -342,6 +354,12 @@ renderCUDA(
 
 	float expected_invdepth = 0.0f;
 
+	bool debug_pixel = (pix.x == W / 2 && pix.y == H / 2);
+	if (debug_pixel) {
+		printf("RenderCUDA Debug: Center Pixel (%d, %d). Range: [%d, %d] Rounds: %d ToDo: %d\n",
+			pix.x, pix.y, range.x, range.y, rounds, toDo);
+	}
+
 	// Iterate over batches until all done or range is complete
 	for (int i = 0; i < rounds; i++, toDo -= BLOCK_SIZE)
 	{
@@ -384,6 +402,11 @@ renderCUDA(
 			if (alpha < 1.0f / 255.0f)
 				continue;
 			float test_T = T * (1 - alpha);
+
+			if (debug_pixel && contributor < 10) {
+				printf("  Contrib %d: power=%f alpha=%f T_before=%f test_T=%f\n", contributor, power, alpha, T, test_T);
+			}
+
 			if (test_T < 0.0001f)
 			{
 				done = true;
