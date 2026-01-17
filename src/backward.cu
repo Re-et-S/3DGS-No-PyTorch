@@ -705,11 +705,7 @@ void BACKWARD::preprocess(
 		means3D,
 		radii,
 		cov3Ds,
-		h_x, h_y, // Note: h_x/h_y are likely focal_x, focal_y, but the args passed are focal_x, focal_y
-        // Wait, the function def uses h_x, h_y but call passes focal_x, focal_y?
-        // Let's check original.
-        // Original calls it focal_x, focal_y in signature.
-        focal_x,
+		focal_x,
 		focal_y,
 		tan_fovx,
 		tan_fovy,
