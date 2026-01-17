@@ -287,10 +287,6 @@ int CudaRasterizer::Rasterizer::forward(
 	int num_rendered;
 	CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug);
 
-	if (P > 0) {
-		printf("DEBUG: num_rendered=%d (from %d gaussians)\n", num_rendered, P);
-	}
-
 	size_t binning_chunk_size = required<BinningState>(num_rendered);
 	char* binning_chunkptr = binningBuffer(binning_chunk_size);
 	BinningState binningState = BinningState::fromChunk(binning_chunkptr, num_rendered);
@@ -327,17 +323,6 @@ int CudaRasterizer::Rasterizer::forward(
 			binningState.point_list_keys,
 			imgState.ranges);
 	CHECK_CUDA(, debug)
-
-	if (num_rendered > 0) {
-		uint2 ranges_head[5];
-		cudaMemcpy(ranges_head, imgState.ranges, 5 * sizeof(uint2), cudaMemcpyDeviceToHost);
-		printf("DEBUG: ranges[0..4]: (%d, %d), (%d, %d), (%d, %d), (%d, %d), (%d, %d)\n",
-			ranges_head[0].x, ranges_head[0].y,
-			ranges_head[1].x, ranges_head[1].y,
-			ranges_head[2].x, ranges_head[2].y,
-			ranges_head[3].x, ranges_head[3].y,
-			ranges_head[4].x, ranges_head[4].y);
-	}
 
     if (tiles_touched_out) {
         CHECK_CUDA(cudaMemcpy(tiles_touched_out, geomState.tiles_touched, P * sizeof(uint32_t), cudaMemcpyDeviceToDevice), debug);
