@@ -545,8 +545,9 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
     dL_drots[2] = dL_dq.z;
     dL_drots[3] = dL_dq.w;
 
-    if (idx == 0) {
-        printf("[CTX] computeCov3D idx=0\n");
+    if (idx < 5) {
+        printf("[CTX] computeCov3D idx=%d\n", idx);
+        printf("  Rot (q): %f %f %f %f\n", q.x, q.y, q.z, q.w);
         printf("  dL_dcov3D: %f %f %f\n", dL_dcov3D[0], dL_dcov3D[1], dL_dcov3D[2]);
         printf("  dL_dscales: %f %f %f\n", dL_dscales[0], dL_dscales[1], dL_dscales[2]);
         printf("  dL_drots: %f %f %f %f\n", dL_drots[0], dL_drots[1], dL_drots[2], dL_drots[3]);
