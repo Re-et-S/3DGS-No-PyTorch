@@ -42,9 +42,9 @@ public:
           d_loss(1),
           dL_dpixels(width * height * 3),
           // 512MB scratch space
-          geomBuffer(1024 * 1024 * 1024),
-          binningBuffer(1024 * 1024 * 1024),
-          imgBuffer(1024 * 1024 * 1024)
+          geomBuffer(1024 * 1024 * 512),
+          binningBuffer(1024 * 1024 * 512),
+          imgBuffer(1024 * 1024 * 512)
     {
         d_bg_color.to_device({0.0f,0.0f,0.0f});
     }

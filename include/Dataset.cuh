@@ -3,7 +3,7 @@
 #include "ImageIO.h"
 
 struct TrainingItem {
-    // Using pointer for lightweight assignability (as discussed)
+    
     const TrainingView* view;
     std::vector<float> gt_image; 
 };
@@ -55,6 +55,9 @@ public:
         return loader_.getPoints();
     }
 
+    void visualize(uint32_t image_id, const std::string& output_file) {
+        loader_.visualize(image_id, output_file);
+    }
     
 private:
     ColmapLoader loader_;
