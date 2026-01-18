@@ -122,6 +122,7 @@ __global__ void identifyTileRanges(int L, uint64_t* point_list_keys, uint2* rang
 	// Read tile ID from key. Update start/end of tile range if at limit.
 	uint64_t key = point_list_keys[idx];
 	uint32_t currtile = key >> 32;
+
 	if (idx == 0)
 		ranges[currtile].x = 0;
 	else

@@ -23,40 +23,53 @@ __device__ __forceinline__ float sq(float x) { return x * x; }
 __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const float* means, glm::vec3 campos, const float* dc, const float* shs, const bool* clamped, const float* dL_dcolor, float* dL_dmeans, float* dL_ddc, float* dL_dshs)
 {
     // 1. Compute view direction (same as forward)
-	glm::vec3 pos = { means[3 * idx + 0], means[3 * idx + 1], means[3 * idx + 2] };
-	glm::vec3 dir_orig = pos - campos;
-	glm::vec3 dir = dir_orig / glm::length(dir_orig);
+	float pos_x = means[3 * idx + 0];
+    float pos_y = means[3 * idx + 1];
+    float pos_z = means[3 * idx + 2];
+
+	float dir_orig_x = pos_x - campos.x;
+    float dir_orig_y = pos_y - campos.y;
+    float dir_orig_z = pos_z - campos.z;
+
+    float dir_len_sq = dir_orig_x*dir_orig_x + dir_orig_y*dir_orig_y + dir_orig_z*dir_orig_z;
+    float dir_len = sqrt(dir_len_sq);
+
+    float dir_x = dir_orig_x / dir_len;
+    float dir_y = dir_orig_y / dir_len;
+    float dir_z = dir_orig_z / dir_len;
 
 	const float* sh_ptr = shs + 3 * max_coeffs * idx;
 
 	// 2. Retrieve the upstream gradient (dL/dColor)
-	glm::vec3 dL_dRGB = { dL_dcolor[3 * idx + 0], dL_dcolor[3 * idx + 1], dL_dcolor[3 * idx + 2] };
+    float dL_dRGB_x = dL_dcolor[3 * idx + 0];
+    float dL_dRGB_y = dL_dcolor[3 * idx + 1];
+    float dL_dRGB_z = dL_dcolor[3 * idx + 2];
 
 	// 3. Apply ReLU Derivative (Clamp)
 	// If the forward pass clamped the value to 0, the gradient is blocked (0).
-	dL_dRGB.x *= clamped[3 * idx + 0] ? 0.0f : 1.0f;
-	dL_dRGB.y *= clamped[3 * idx + 1] ? 0.0f : 1.0f;
-	dL_dRGB.z *= clamped[3 * idx + 2] ? 0.0f : 1.0f;
+	dL_dRGB_x *= clamped[3 * idx + 0] ? 0.0f : 1.0f;
+	dL_dRGB_y *= clamped[3 * idx + 1] ? 0.0f : 1.0f;
+	dL_dRGB_z *= clamped[3 * idx + 2] ? 0.0f : 1.0f;
 
 	// 4. Compute Gradient for DC (Base Color)
 	// Forward: Color = 0.5 + SH_C0 * DC + ...
 	// Derivative: dColor/dDC = SH_C0
 	float* dL_ddirect_color_ptr = dL_ddc + 3 * idx;
-	dL_ddirect_color_ptr[0] = dL_dRGB.x * SH_C0;
-	dL_ddirect_color_ptr[1] = dL_dRGB.y * SH_C0;
-	dL_ddirect_color_ptr[2] = dL_dRGB.z * SH_C0;
+	dL_ddirect_color_ptr[0] = dL_dRGB_x * SH_C0;
+	dL_ddirect_color_ptr[1] = dL_dRGB_y * SH_C0;
+	dL_ddirect_color_ptr[2] = dL_dRGB_z * SH_C0;
 
 	// 5. Compute Gradients for SH coefficients (Rest) & View Direction
 	float* dL_dsh_ptr = dL_dshs + 3 * max_coeffs * idx;
 	
 	// Accumulators for view direction gradient
-	glm::vec3 dRGBdx(0, 0, 0);
-	glm::vec3 dRGBdy(0, 0, 0);
-	glm::vec3 dRGBdz(0, 0, 0);
+    float dRGBdx_x = 0, dRGBdx_y = 0, dRGBdx_z = 0;
+    float dRGBdy_x = 0, dRGBdy_y = 0, dRGBdy_z = 0;
+    float dRGBdz_x = 0, dRGBdz_y = 0, dRGBdz_z = 0;
 	
-	float x = dir.x;
-	float y = dir.y;
-	float z = dir.z;
+	float x = dir_x;
+	float y = dir_y;
+	float z = dir_z;
 
     // No tricks here, just high school-level calculus.
 	// float dRGBdsh0 = SH_C0;
@@ -68,21 +81,24 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const float
 		float dRGBdsh3 = -SH_C1 * x;
 
         // sh[1]
-        dL_dsh_ptr[3] = dRGBdsh1 * dL_dRGB.x;
-        dL_dsh_ptr[4] = dRGBdsh1 * dL_dRGB.y;
-        dL_dsh_ptr[5] = dRGBdsh1 * dL_dRGB.z;
+        dL_dsh_ptr[3] = dRGBdsh1 * dL_dRGB_x;
+        dL_dsh_ptr[4] = dRGBdsh1 * dL_dRGB_y;
+        dL_dsh_ptr[5] = dRGBdsh1 * dL_dRGB_z;
         // sh[2]
-        dL_dsh_ptr[6] = dRGBdsh2 * dL_dRGB.x;
-        dL_dsh_ptr[7] = dRGBdsh2 * dL_dRGB.y;
-        dL_dsh_ptr[8] = dRGBdsh2 * dL_dRGB.z;
+        dL_dsh_ptr[6] = dRGBdsh2 * dL_dRGB_x;
+        dL_dsh_ptr[7] = dRGBdsh2 * dL_dRGB_y;
+        dL_dsh_ptr[8] = dRGBdsh2 * dL_dRGB_z;
         // sh[3]
-        dL_dsh_ptr[9] = dRGBdsh3 * dL_dRGB.x;
-        dL_dsh_ptr[10] = dRGBdsh3 * dL_dRGB.y;
-        dL_dsh_ptr[11] = dRGBdsh3 * dL_dRGB.z;
+        dL_dsh_ptr[9] = dRGBdsh3 * dL_dRGB_x;
+        dL_dsh_ptr[10] = dRGBdsh3 * dL_dRGB_y;
+        dL_dsh_ptr[11] = dRGBdsh3 * dL_dRGB_z;
 
-		dRGBdx = -SH_C1 * glm::vec3(sh_ptr[9], sh_ptr[10], sh_ptr[11]);
-		dRGBdy = -SH_C1 * glm::vec3(sh_ptr[3], sh_ptr[4], sh_ptr[5]);
-		dRGBdz = SH_C1 * glm::vec3(sh_ptr[6], sh_ptr[7], sh_ptr[8]);
+        // dRGBdx = -SH_C1 * sh[3]
+        dRGBdx_x = -SH_C1 * sh_ptr[9]; dRGBdx_y = -SH_C1 * sh_ptr[10]; dRGBdx_z = -SH_C1 * sh_ptr[11];
+        // dRGBdy = -SH_C1 * sh[1]
+        dRGBdy_x = -SH_C1 * sh_ptr[3]; dRGBdy_y = -SH_C1 * sh_ptr[4]; dRGBdy_z = -SH_C1 * sh_ptr[5];
+        // dRGBdz = SH_C1 * sh[2]
+        dRGBdz_x = SH_C1 * sh_ptr[6]; dRGBdz_y = SH_C1 * sh_ptr[7]; dRGBdz_z = SH_C1 * sh_ptr[8];
 
 		if (deg > 1)
 		{
@@ -96,21 +112,34 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const float
 			float dRGBdsh8 = SH_C2[4] * (xx - yy);
 
             // sh[4]..sh[8]
-            for (int k = 0; k < 3; k++) dL_dsh_ptr[12+k] = dRGBdsh4 * dL_dRGB[k];
-            for (int k = 0; k < 3; k++) dL_dsh_ptr[15+k] = dRGBdsh5 * dL_dRGB[k];
-            for (int k = 0; k < 3; k++) dL_dsh_ptr[18+k] = dRGBdsh6 * dL_dRGB[k];
-            for (int k = 0; k < 3; k++) dL_dsh_ptr[21+k] = dRGBdsh7 * dL_dRGB[k];
-            for (int k = 0; k < 3; k++) dL_dsh_ptr[24+k] = dRGBdsh8 * dL_dRGB[k];
+            // Unrolled loop for K=0..2
+            dL_dsh_ptr[12+0] = dRGBdsh4 * dL_dRGB_x; dL_dsh_ptr[12+1] = dRGBdsh4 * dL_dRGB_y; dL_dsh_ptr[12+2] = dRGBdsh4 * dL_dRGB_z;
+            dL_dsh_ptr[15+0] = dRGBdsh5 * dL_dRGB_x; dL_dsh_ptr[15+1] = dRGBdsh5 * dL_dRGB_y; dL_dsh_ptr[15+2] = dRGBdsh5 * dL_dRGB_z;
+            dL_dsh_ptr[18+0] = dRGBdsh6 * dL_dRGB_x; dL_dsh_ptr[18+1] = dRGBdsh6 * dL_dRGB_y; dL_dsh_ptr[18+2] = dRGBdsh6 * dL_dRGB_z;
+            dL_dsh_ptr[21+0] = dRGBdsh7 * dL_dRGB_x; dL_dsh_ptr[21+1] = dRGBdsh7 * dL_dRGB_y; dL_dsh_ptr[21+2] = dRGBdsh7 * dL_dRGB_z;
+            dL_dsh_ptr[24+0] = dRGBdsh8 * dL_dRGB_x; dL_dsh_ptr[24+1] = dRGBdsh8 * dL_dRGB_y; dL_dsh_ptr[24+2] = dRGBdsh8 * dL_dRGB_z;
 
-            glm::vec3 sh4 = { sh_ptr[12], sh_ptr[13], sh_ptr[14] };
-            glm::vec3 sh5 = { sh_ptr[15], sh_ptr[16], sh_ptr[17] };
-            glm::vec3 sh6 = { sh_ptr[18], sh_ptr[19], sh_ptr[20] };
-            glm::vec3 sh7 = { sh_ptr[21], sh_ptr[22], sh_ptr[23] };
-            glm::vec3 sh8 = { sh_ptr[24], sh_ptr[25], sh_ptr[26] };
+            // sh4..sh8 manual load
+            float sh4_x = sh_ptr[12], sh4_y = sh_ptr[13], sh4_z = sh_ptr[14];
+            float sh5_x = sh_ptr[15], sh5_y = sh_ptr[16], sh5_z = sh_ptr[17];
+            float sh6_x = sh_ptr[18], sh6_y = sh_ptr[19], sh6_z = sh_ptr[20];
+            float sh7_x = sh_ptr[21], sh7_y = sh_ptr[22], sh7_z = sh_ptr[23];
+            float sh8_x = sh_ptr[24], sh8_y = sh_ptr[25], sh8_z = sh_ptr[26];
 
-			dRGBdx += SH_C2[0] * y * sh4 + SH_C2[2] * 2.f * -x * sh6 + SH_C2[3] * z * sh7 + SH_C2[4] * 2.f * x * sh8;
-			dRGBdy += SH_C2[0] * x * sh4 + SH_C2[1] * z * sh5 + SH_C2[2] * 2.f * -y * sh6 + SH_C2[4] * 2.f * -y * sh8;
-			dRGBdz += SH_C2[1] * y * sh5 + SH_C2[2] * 2.f * 2.f * z * sh6 + SH_C2[3] * x * sh7;
+			// dRGBdx += SH_C2[0] * y * sh4 + SH_C2[2] * 2.f * -x * sh6 + SH_C2[3] * z * sh7 + SH_C2[4] * 2.f * x * sh8;
+            dRGBdx_x += SH_C2[0] * y * sh4_x + SH_C2[2] * -2.f * x * sh6_x + SH_C2[3] * z * sh7_x + SH_C2[4] * 2.f * x * sh8_x;
+            dRGBdx_y += SH_C2[0] * y * sh4_y + SH_C2[2] * -2.f * x * sh6_y + SH_C2[3] * z * sh7_y + SH_C2[4] * 2.f * x * sh8_y;
+            dRGBdx_z += SH_C2[0] * y * sh4_z + SH_C2[2] * -2.f * x * sh6_z + SH_C2[3] * z * sh7_z + SH_C2[4] * 2.f * x * sh8_z;
+
+			// dRGBdy += SH_C2[0] * x * sh4 + SH_C2[1] * z * sh5 + SH_C2[2] * 2.f * -y * sh6 + SH_C2[4] * 2.f * -y * sh8;
+            dRGBdy_x += SH_C2[0] * x * sh4_x + SH_C2[1] * z * sh5_x + SH_C2[2] * -2.f * y * sh6_x + SH_C2[4] * -2.f * y * sh8_x;
+            dRGBdy_y += SH_C2[0] * x * sh4_y + SH_C2[1] * z * sh5_y + SH_C2[2] * -2.f * y * sh6_y + SH_C2[4] * -2.f * y * sh8_y;
+            dRGBdy_z += SH_C2[0] * x * sh4_z + SH_C2[1] * z * sh5_z + SH_C2[2] * -2.f * y * sh6_z + SH_C2[4] * -2.f * y * sh8_z;
+
+			// dRGBdz += SH_C2[1] * y * sh5 + SH_C2[2] * 2.f * 2.f * z * sh6 + SH_C2[3] * x * sh7;
+            dRGBdz_x += SH_C2[1] * y * sh5_x + SH_C2[2] * 4.f * z * sh6_x + SH_C2[3] * x * sh7_x;
+            dRGBdz_y += SH_C2[1] * y * sh5_y + SH_C2[2] * 4.f * z * sh6_y + SH_C2[3] * x * sh7_y;
+            dRGBdz_z += SH_C2[1] * y * sh5_z + SH_C2[2] * 4.f * z * sh6_z + SH_C2[3] * x * sh7_z;
 
 			if (deg > 2)
 			{
@@ -122,46 +151,58 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const float
 				float dRGBdsh14 = SH_C3[5] * z * (xx - yy);
 				float dRGBdsh15 = SH_C3[6] * x * (xx - 3.f * yy);
 
-                for (int k = 0; k < 3; k++) dL_dsh_ptr[27+k] = dRGBdsh9 * dL_dRGB[k];
-                for (int k = 0; k < 3; k++) dL_dsh_ptr[30+k] = dRGBdsh10 * dL_dRGB[k];
-                for (int k = 0; k < 3; k++) dL_dsh_ptr[33+k] = dRGBdsh11 * dL_dRGB[k];
-                for (int k = 0; k < 3; k++) dL_dsh_ptr[36+k] = dRGBdsh12 * dL_dRGB[k];
-                for (int k = 0; k < 3; k++) dL_dsh_ptr[39+k] = dRGBdsh13 * dL_dRGB[k];
-                for (int k = 0; k < 3; k++) dL_dsh_ptr[42+k] = dRGBdsh14 * dL_dRGB[k];
-                for (int k = 0; k < 3; k++) dL_dsh_ptr[45+k] = dRGBdsh15 * dL_dRGB[k];
+                dL_dsh_ptr[27+0] = dRGBdsh9 * dL_dRGB_x; dL_dsh_ptr[27+1] = dRGBdsh9 * dL_dRGB_y; dL_dsh_ptr[27+2] = dRGBdsh9 * dL_dRGB_z;
+                dL_dsh_ptr[30+0] = dRGBdsh10 * dL_dRGB_x; dL_dsh_ptr[30+1] = dRGBdsh10 * dL_dRGB_y; dL_dsh_ptr[30+2] = dRGBdsh10 * dL_dRGB_z;
+                dL_dsh_ptr[33+0] = dRGBdsh11 * dL_dRGB_x; dL_dsh_ptr[33+1] = dRGBdsh11 * dL_dRGB_y; dL_dsh_ptr[33+2] = dRGBdsh11 * dL_dRGB_z;
+                dL_dsh_ptr[36+0] = dRGBdsh12 * dL_dRGB_x; dL_dsh_ptr[36+1] = dRGBdsh12 * dL_dRGB_y; dL_dsh_ptr[36+2] = dRGBdsh12 * dL_dRGB_z;
+                dL_dsh_ptr[39+0] = dRGBdsh13 * dL_dRGB_x; dL_dsh_ptr[39+1] = dRGBdsh13 * dL_dRGB_y; dL_dsh_ptr[39+2] = dRGBdsh13 * dL_dRGB_z;
+                dL_dsh_ptr[42+0] = dRGBdsh14 * dL_dRGB_x; dL_dsh_ptr[42+1] = dRGBdsh14 * dL_dRGB_y; dL_dsh_ptr[42+2] = dRGBdsh14 * dL_dRGB_z;
+                dL_dsh_ptr[45+0] = dRGBdsh15 * dL_dRGB_x; dL_dsh_ptr[45+1] = dRGBdsh15 * dL_dRGB_y; dL_dsh_ptr[45+2] = dRGBdsh15 * dL_dRGB_z;
 
-                glm::vec3 sh9 = { sh_ptr[27], sh_ptr[28], sh_ptr[29] };
-                glm::vec3 sh10 = { sh_ptr[30], sh_ptr[31], sh_ptr[32] };
-                glm::vec3 sh11 = { sh_ptr[33], sh_ptr[34], sh_ptr[35] };
-                glm::vec3 sh12 = { sh_ptr[36], sh_ptr[37], sh_ptr[38] };
-                glm::vec3 sh13 = { sh_ptr[39], sh_ptr[40], sh_ptr[41] };
-                glm::vec3 sh14 = { sh_ptr[42], sh_ptr[43], sh_ptr[44] };
-                glm::vec3 sh15 = { sh_ptr[45], sh_ptr[46], sh_ptr[47] };
+                float sh9_x = sh_ptr[27], sh9_y = sh_ptr[28], sh9_z = sh_ptr[29];
+                float sh10_x = sh_ptr[30], sh10_y = sh_ptr[31], sh10_z = sh_ptr[32];
+                float sh11_x = sh_ptr[33], sh11_y = sh_ptr[34], sh11_z = sh_ptr[35];
+                float sh12_x = sh_ptr[36], sh12_y = sh_ptr[37], sh12_z = sh_ptr[38];
+                float sh13_x = sh_ptr[39], sh13_y = sh_ptr[40], sh13_z = sh_ptr[41];
+                float sh14_x = sh_ptr[42], sh14_y = sh_ptr[43], sh14_z = sh_ptr[44];
+                float sh15_x = sh_ptr[45], sh15_y = sh_ptr[46], sh15_z = sh_ptr[47];
 
-				dRGBdx += (
-					SH_C3[0] * sh9 * 3.f * 2.f * xy +
-					SH_C3[1] * sh10 * yz +
-					SH_C3[2] * sh11 * -2.f * xy +
-					SH_C3[3] * sh12 * -3.f * 2.f * xz +
-					SH_C3[4] * sh13 * (-3.f * xx + 4.f * zz - yy) +
-					SH_C3[5] * sh14 * 2.f * xz +
-					SH_C3[6] * sh15 * 3.f * (xx - yy));
+                // dRGBdx accumulation
+                float term1 = SH_C3[0] * 3.f * 2.f * xy;
+                float term2 = SH_C3[1] * yz;
+                float term3 = SH_C3[2] * -2.f * xy;
+                float term4 = SH_C3[3] * -6.f * xz;
+                float term5 = SH_C3[4] * (-3.f * xx + 4.f * zz - yy);
+                float term6 = SH_C3[5] * 2.f * xz;
+                float term7 = SH_C3[6] * 3.f * (xx - yy);
 
-				dRGBdy += (
-					SH_C3[0] * sh9 * 3.f * (xx - yy) +
-					SH_C3[1] * sh10 * xz +
-					SH_C3[2] * sh11 * (-3.f * yy + 4.f * zz - xx) +
-					SH_C3[3] * sh12 * -3.f * 2.f * yz +
-					SH_C3[4] * sh13 * -2.f * xy +
-					SH_C3[5] * sh14 * -2.f * yz +
-					SH_C3[6] * sh15 * -3.f * 2.f * xy);
+                dRGBdx_x += term1 * sh9_x + term2 * sh10_x + term3 * sh11_x + term4 * sh12_x + term5 * sh13_x + term6 * sh14_x + term7 * sh15_x;
+                dRGBdx_y += term1 * sh9_y + term2 * sh10_y + term3 * sh11_y + term4 * sh12_y + term5 * sh13_y + term6 * sh14_y + term7 * sh15_y;
+                dRGBdx_z += term1 * sh9_z + term2 * sh10_z + term3 * sh11_z + term4 * sh12_z + term5 * sh13_z + term6 * sh14_z + term7 * sh15_z;
 
-				dRGBdz += (
-					SH_C3[1] * sh10 * xy +
-					SH_C3[2] * sh11 * 4.f * 2.f * yz +
-					SH_C3[3] * sh12 * 3.f * (2.f * zz - xx - yy) +
-					SH_C3[4] * sh13 * 4.f * 2.f * xz +
-					SH_C3[5] * sh14 * (xx - yy));
+                // dRGBdy accumulation
+                term1 = SH_C3[0] * 3.f * (xx - yy);
+                term2 = SH_C3[1] * xz;
+                term3 = SH_C3[2] * (-3.f * yy + 4.f * zz - xx);
+                term4 = SH_C3[3] * -6.f * yz;
+                term5 = SH_C3[4] * -2.f * xy;
+                term6 = SH_C3[5] * -2.f * yz;
+                term7 = SH_C3[6] * -6.f * xy;
+
+                dRGBdy_x += term1 * sh9_x + term2 * sh10_x + term3 * sh11_x + term4 * sh12_x + term5 * sh13_x + term6 * sh14_x + term7 * sh15_x;
+                dRGBdy_y += term1 * sh9_y + term2 * sh10_y + term3 * sh11_y + term4 * sh12_y + term5 * sh13_y + term6 * sh14_y + term7 * sh15_y;
+                dRGBdy_z += term1 * sh9_z + term2 * sh10_z + term3 * sh11_z + term4 * sh12_z + term5 * sh13_z + term6 * sh14_z + term7 * sh15_z;
+
+                // dRGBdz accumulation
+                term1 = SH_C3[1] * xy;
+                term2 = SH_C3[2] * 8.f * yz;
+                term3 = SH_C3[3] * 3.f * (2.f * zz - xx - yy);
+                term4 = SH_C3[4] * 8.f * xz;
+                term5 = SH_C3[5] * (xx - yy);
+
+                dRGBdz_x += term1 * sh10_x + term2 * sh11_x + term3 * sh12_x + term4 * sh13_x + term5 * sh14_x;
+                dRGBdz_y += term1 * sh10_y + term2 * sh11_y + term3 * sh12_y + term4 * sh13_y + term5 * sh14_y;
+                dRGBdz_z += term1 * sh10_z + term2 * sh11_z + term3 * sh12_z + term4 * sh13_z + term5 * sh14_z;
 			}
 		}
 	}
@@ -169,10 +210,13 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const float
 	// The view direction is an input to the computation. View direction
 	// is influenced by the Gaussian's mean, so SHs gradients
 	// must propagate back into 3D position.
-	glm::vec3 dL_ddir(glm::dot(dRGBdx, dL_dRGB), glm::dot(dRGBdy, dL_dRGB), glm::dot(dRGBdz, dL_dRGB));
+    // dL_ddir = dot(dRGBdx, dL_dRGB)
+	float dL_ddir_x = dRGBdx_x * dL_dRGB_x + dRGBdx_y * dL_dRGB_y + dRGBdx_z * dL_dRGB_z;
+    float dL_ddir_y = dRGBdy_x * dL_dRGB_x + dRGBdy_y * dL_dRGB_y + dRGBdy_z * dL_dRGB_z;
+    float dL_ddir_z = dRGBdz_x * dL_dRGB_x + dRGBdz_y * dL_dRGB_y + dRGBdz_z * dL_dRGB_z;
 
 	// Account for normalization of direction
-	float3 dL_dmean = dnormvdv(float3{ dir_orig.x, dir_orig.y, dir_orig.z }, float3{ dL_ddir.x, dL_ddir.y, dL_ddir.z });
+	float3 dL_dmean = dnormvdv(float3{ dir_orig_x, dir_orig_y, dir_orig_z }, float3{ dL_ddir_x, dL_ddir_y, dL_ddir_z });
 
 	// Gradients of loss w.r.t. Gaussian means, but only the portion 
 	// that is caused because the mean affects the view-dependent color.
@@ -409,6 +453,7 @@ __global__ void computeCov2DCUDA(int P,
 		
         // Use the new symmetric function to compute gradients for mean and 3D covariance
         float3 dL_dCov2D = { dL_dc_xx, dL_dc_xy, dL_dc_yy };
+
         computeCov2DGradient(mean, h_x, h_y, tan_fovx, tan_fovy, cov3D, view_matrix, dL_dCov2D, dL_dmeans + 3*idx, dL_dcov + 6*idx);
 
 	} else {
@@ -432,60 +477,100 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
 	float y = q.z;
 	float z = q.w;
 
-	glm::mat3 R = glm::mat3(
-		1.f - 2.f * (y * y + z * z), 2.f * (x * y - r * z), 2.f * (x * z + r * y),
-		2.f * (x * y + r * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z - r * x),
-		2.f * (x * z - r * y), 2.f * (y * z + r * x), 1.f - 2.f * (x * x + y * y)
-	);
+    // R matrix elements (Row-Major indices)
+    // R00 R01 R02
+    // R10 R11 R12
+    // R20 R21 R22
+	float R00 = 1.f - 2.f * (y * y + z * z);
+    float R01 = 2.f * (x * y - r * z);
+    float R02 = 2.f * (x * z + r * y);
 
-	glm::mat3 S = glm::mat3(1.0f);
+    float R10 = 2.f * (x * y + r * z);
+    float R11 = 1.f - 2.f * (x * x + z * z);
+    float R12 = 2.f * (y * z - r * x);
 
-    glm::vec3 s = {
-    mod * expf(scale.x),
-    mod * expf(scale.y),
-    mod * expf(scale.z) 
-    };
-	S[0][0] = s.x;
-	S[1][1] = s.y;
-	S[2][2] = s.z;
+    float R20 = 2.f * (x * z - r * y);
+    float R21 = 2.f * (y * z + r * x);
+    float R22 = 1.f - 2.f * (x * x + y * y);
 
-	glm::mat3 M = S * R;
+    float sx = mod * expf(scale.x);
+    float sy = mod * expf(scale.y);
+    float sz = mod * expf(scale.z);
+
+    // M = S * R (Scaling columns of R)
+    // M00 M01 M02
+    // M10 M11 M12
+    // M20 M21 M22
+	float M00 = R00 * sx;
+    float M01 = R01 * sy;
+    float M02 = R02 * sz;
+
+    float M10 = R10 * sx;
+    float M11 = R11 * sy;
+    float M12 = R12 * sz;
+
+    float M20 = R20 * sx;
+    float M21 = R21 * sy;
+    float M22 = R22 * sz;
 
 	const float* dL_dcov3D = dL_dcov3Ds + 6 * idx;
 
-	glm::vec3 dunc(dL_dcov3D[0], dL_dcov3D[3], dL_dcov3D[5]);
-	glm::vec3 ounc = 0.5f * glm::vec3(dL_dcov3D[1], dL_dcov3D[2], dL_dcov3D[4]);
+    // dL_dSigma Matrix (Symmetric)
+    // S00 S01 S02
+    // S10 S11 S12
+    // S20 S21 S22
+    float S00 = dL_dcov3D[0];
+    float S01 = 0.5f * dL_dcov3D[1];
+    float S02 = 0.5f * dL_dcov3D[2];
 
-	// Convert per-element covariance loss gradients to matrix form
-	glm::mat3 dL_dSigma = glm::mat3(
-		dL_dcov3D[0], 0.5f * dL_dcov3D[1], 0.5f * dL_dcov3D[2],
-		0.5f * dL_dcov3D[1], dL_dcov3D[3], 0.5f * dL_dcov3D[4],
-		0.5f * dL_dcov3D[2], 0.5f * dL_dcov3D[4], dL_dcov3D[5]
-	);
+    float S10 = 0.5f * dL_dcov3D[1];
+    float S11 = dL_dcov3D[3];
+    float S12 = 0.5f * dL_dcov3D[4];
+
+    float S20 = 0.5f * dL_dcov3D[2];
+    float S21 = 0.5f * dL_dcov3D[4];
+    float S22 = dL_dcov3D[5];
 
 	// Compute loss gradient w.r.t. matrix M
 	// dSigma_dM = 2 * M
-	glm::mat3 dL_dM = 2.0f * M * dL_dSigma;
-
-	glm::mat3 Rt = glm::transpose(R);
-	glm::mat3 dL_dMt = glm::transpose(dL_dM);
+    // dL/dM = 2 * dL/dSigma * M
+    // S is symmetric (dL/dSigma)
+    // Row 0 (S00, S01, S02) * Columns of M
+    float dL_dM00 = 2.0f * (S00 * M00 + S01 * M10 + S02 * M20);
+    float dL_dM01 = 2.0f * (S00 * M01 + S01 * M11 + S02 * M21);
+    float dL_dM02 = 2.0f * (S00 * M02 + S01 * M12 + S02 * M22);
+    // Row 1 (S10, S11, S12) * Columns of M
+    float dL_dM10 = 2.0f * (S10 * M00 + S11 * M10 + S12 * M20);
+    float dL_dM11 = 2.0f * (S10 * M01 + S11 * M11 + S12 * M21);
+    float dL_dM12 = 2.0f * (S10 * M02 + S11 * M12 + S12 * M22);
+    // Row 2 (S20, S21, S22) * Columns of M
+    float dL_dM20 = 2.0f * (S20 * M00 + S21 * M10 + S22 * M20);
+    float dL_dM21 = 2.0f * (S20 * M01 + S21 * M11 + S22 * M21);
+    float dL_dM22 = 2.0f * (S20 * M02 + S21 * M12 + S22 * M22);
 
 	// Gradients of loss w.r.t. scale
 	// Chain Rule: dL/dp = dL/ds * s
-	dL_dscales[0] = glm::dot(Rt[0], dL_dMt[0]) * s.x;
-	dL_dscales[1] = glm::dot(Rt[1], dL_dMt[1]) * s.y;
-	dL_dscales[2] = glm::dot(Rt[2], dL_dMt[2]) * s.z;
+    // dL_dscales[0] = (R00 * dL_dM00 + R10 * dL_dM10 + R20 * dL_dM20) * sx;
+    // dL_dscales[1] = (R01 * dL_dM01 + R11 * dL_dM11 + R21 * dL_dM21) * sy;
+    // dL_dscales[2] = (R02 * dL_dM02 + R12 * dL_dM12 + R22 * dL_dM22) * sz;
+	dL_dscales[0] = (R00 * dL_dM00 + R10 * dL_dM10 + R20 * dL_dM20) * sx;
+	dL_dscales[1] = (R01 * dL_dM01 + R11 * dL_dM11 + R21 * dL_dM21) * sy;
+	dL_dscales[2] = (R02 * dL_dM02 + R12 * dL_dM12 + R22 * dL_dM22) * sz;
 
-	dL_dMt[0] *= s.x;
-	dL_dMt[1] *= s.y;
-	dL_dMt[2] *= s.z;
+    // Scale gradients for M^T
+    // dL_dMt is Transpose(dL_dM) * S
+    // dL_dMt00 = dL_dM00 * sx;
+    // dL_dMt01 = dL_dM10 * sx; ...
+    float dL_dMt00 = dL_dM00 * sx; float dL_dMt01 = dL_dM10 * sx; float dL_dMt02 = dL_dM20 * sx;
+    float dL_dMt10 = dL_dM01 * sy; float dL_dMt11 = dL_dM11 * sy; float dL_dMt12 = dL_dM21 * sy;
+    float dL_dMt20 = dL_dM02 * sz; float dL_dMt21 = dL_dM12 * sz; float dL_dMt22 = dL_dM22 * sz;
 
 	// Gradients of loss w.r.t. normalized quaternion
 	glm::vec4 dL_dq;
-	dL_dq.x = 2 * z * (dL_dMt[0][1] - dL_dMt[1][0]) + 2 * y * (dL_dMt[2][0] - dL_dMt[0][2]) + 2 * x * (dL_dMt[1][2] - dL_dMt[2][1]);
-	dL_dq.y = 2 * y * (dL_dMt[1][0] + dL_dMt[0][1]) + 2 * z * (dL_dMt[2][0] + dL_dMt[0][2]) + 2 * r * (dL_dMt[1][2] - dL_dMt[2][1]) - 4 * x * (dL_dMt[2][2] + dL_dMt[1][1]);
-	dL_dq.z = 2 * x * (dL_dMt[1][0] + dL_dMt[0][1]) + 2 * r * (dL_dMt[2][0] - dL_dMt[0][2]) + 2 * z * (dL_dMt[1][2] + dL_dMt[2][1]) - 4 * y * (dL_dMt[2][2] + dL_dMt[0][0]);
-	dL_dq.w = 2 * r * (dL_dMt[0][1] - dL_dMt[1][0]) + 2 * x * (dL_dMt[2][0] + dL_dMt[0][2]) + 2 * y * (dL_dMt[1][2] + dL_dMt[2][1]) - 4 * z * (dL_dMt[1][1] + dL_dMt[0][0]);
+	dL_dq.x = 2 * z * (dL_dMt01 - dL_dMt10) + 2 * y * (dL_dMt20 - dL_dMt02) + 2 * x * (dL_dMt12 - dL_dMt21);
+	dL_dq.y = 2 * y * (dL_dMt10 + dL_dMt01) + 2 * z * (dL_dMt20 + dL_dMt02) + 2 * r * (dL_dMt12 - dL_dMt21) - 4 * x * (dL_dMt22 + dL_dMt11);
+	dL_dq.z = 2 * x * (dL_dMt10 + dL_dMt01) + 2 * r * (dL_dMt20 - dL_dMt02) + 2 * z * (dL_dMt12 + dL_dMt21) - 4 * y * (dL_dMt22 + dL_dMt00);
+	dL_dq.w = 2 * r * (dL_dMt01 - dL_dMt10) + 2 * x * (dL_dMt20 + dL_dMt02) + 2 * y * (dL_dMt12 + dL_dMt21) - 4 * z * (dL_dMt11 + dL_dMt00);
 
 	// Gradients of loss w.r.t. unnormalized quaternion
 	dL_drots[0] = dL_dq.x;
