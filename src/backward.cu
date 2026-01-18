@@ -218,11 +218,6 @@ __device__ void computeColorFromSH(int idx, int deg, int max_coeffs, const float
 	// Account for normalization of direction
 	float3 dL_dmean = dnormvdv(float3{ dir_orig_x, dir_orig_y, dir_orig_z }, float3{ dL_ddir_x, dL_ddir_y, dL_ddir_z });
 
-    if (isnan(dL_dmean.x) || isnan(dL_dmean.y) || isnan(dL_dmean.z)) {
-         printf("NaN detected in dL_dmean (SH contrib) at idx %d. DirOrig: %f %f %f. dL_ddir: %f %f %f\n",
-            idx, dir_orig_x, dir_orig_y, dir_orig_z, dL_ddir_x, dL_ddir_y, dL_ddir_z);
-    }
-
 	// Gradients of loss w.r.t. Gaussian means, but only the portion 
 	// that is caused because the mean affects the view-dependent color.
 	// Additional mean gradient is accumulated in below methods.
@@ -459,14 +454,6 @@ __global__ void computeCov2DCUDA(int P,
         // Use the new symmetric function to compute gradients for mean and 3D covariance
         float3 dL_dCov2D = { dL_dc_xx, dL_dc_xy, dL_dc_yy };
 
-        if (isnan(dL_dconic.x) || isnan(dL_dconic.y) || isnan(dL_dconic.z)) {
-             printf("NaN detected in dL_dconic at idx %d: %f %f %f\n", idx, dL_dconic.x, dL_dconic.y, dL_dconic.z);
-        }
-
-        if (isnan(dL_dCov2D.x) || isnan(dL_dCov2D.y) || isnan(dL_dCov2D.z)) {
-             printf("NaN detected in dL_dCov2D at idx %d: %f %f %f\n", idx, dL_dCov2D.x, dL_dCov2D.y, dL_dCov2D.z);
-        }
-
         computeCov2DGradient(mean, h_x, h_y, tan_fovx, tan_fovy, cov3D, view_matrix, dL_dCov2D, dL_dmeans + 3*idx, dL_dcov + 6*idx);
 
 	} else {
@@ -590,10 +577,6 @@ __device__ void computeCov3D(int idx, const glm::vec3 scale, float mod, const gl
     dL_drots[1] = dL_dq.y;
     dL_drots[2] = dL_dq.z;
     dL_drots[3] = dL_dq.w;
-
-    if (isnan(dL_dscales[0]) || isnan(dL_dscales[1]) || isnan(dL_dscales[2])) {
-         printf("NaN detected in dL_dscales at idx %d\n", idx);
-    }
 }
 
 // Backward pass of the preprocessing steps, except
@@ -640,14 +623,6 @@ __global__ void preprocessCUDA(
 	dL_dmean.x = (proj[0] * m_w - proj[3] * mul1) * dL_dmean2D[idx].x + (proj[1] * m_w - proj[3] * mul2) * dL_dmean2D[idx].y;
 	dL_dmean.y = (proj[4] * m_w - proj[7] * mul1) * dL_dmean2D[idx].x + (proj[5] * m_w - proj[7] * mul2) * dL_dmean2D[idx].y;
 	dL_dmean.z = (proj[8] * m_w - proj[11] * mul1) * dL_dmean2D[idx].x + (proj[9] * m_w - proj[11] * mul2) * dL_dmean2D[idx].y;
-
-    if (isnan(dL_dmean2D[idx].x) || isnan(dL_dmean2D[idx].y)) {
-         printf("NaN detected in dL_dmean2D at idx %d: %f %f\n", idx, dL_dmean2D[idx].x, dL_dmean2D[idx].y);
-    }
-
-    if (isnan(dL_dmean.x) || isnan(dL_dmean.y) || isnan(dL_dmean.z)) {
-         printf("NaN detected in dL_dmean (proj) at idx %d\n", idx);
-    }
 
 	// That's the second part of the mean gradient. Previous computation
 	// of cov2D and following SH conversion also affects it.

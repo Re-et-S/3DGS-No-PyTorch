@@ -123,10 +123,6 @@ __global__ void identifyTileRanges(int L, uint64_t* point_list_keys, uint2* rang
 	uint64_t key = point_list_keys[idx];
 	uint32_t currtile = key >> 32;
 
-	if (idx < 5) {
-		printf("[CTX] identifyTileRanges idx=%d key=%llu tile=%u\n", idx, key, currtile);
-	}
-
 	if (idx == 0)
 		ranges[currtile].x = 0;
 	else
@@ -291,12 +287,6 @@ int CudaRasterizer::Rasterizer::forward(
 	// Retrieve total number of Gaussian instances to launch and resize aux buffers
 	int num_rendered;
 	CHECK_CUDA(cudaMemcpy(&num_rendered, geomState.point_offsets + P - 1, sizeof(int), cudaMemcpyDeviceToHost), debug);
-
-	if (debug || P > 0) { // Always print for now for debug
-		printf("[CTX] Rasterizer::forward P=%d num_rendered=%d\n", P, num_rendered);
-		printf("  Grid: %d x %d (Block: %d x %d)\n", width, height, BLOCK_X, BLOCK_Y);
-		printf("  Tile Grid: %d x %d\n", tile_grid.x, tile_grid.y);
-	}
 
 	size_t binning_chunk_size = required<BinningState>(num_rendered);
 	char* binning_chunkptr = binningBuffer(binning_chunk_size);

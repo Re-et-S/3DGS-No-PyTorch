@@ -298,22 +298,21 @@ int main(int argc, char** argv) {
         double loss = trainer.train_step(*item.view, d_gt_image, active_sh_degree);
 
         // Debug: Check for NaNs
-        checkNans(
-            scene.count,
-            grads.d_dL_dpoints.get(),
-            grads.d_dL_dcov3Ds.get(),
-            grads.d_dL_dshs.get(),
-            grads.d_dL_dopacities.get(),
-            grads.d_dL_dscales.get(),
-            grads.d_dL_drotations.get()
-        );
+        // checkNans(
+        //     scene.count,
+        //     grads.d_dL_dpoints.get(),
+        //     grads.d_dL_dcov3Ds.get(),
+        //     grads.d_dL_dshs.get(),
+        //     grads.d_dL_dopacities.get(),
+        //     grads.d_dL_dscales.get(),
+        //     grads.d_dL_drotations.get()
+        // );
 
         if (i == start_iteration) {
             trainer.get_current_render(h_render);
             fs::path filename = renders_dir / ("debug_step_" + std::to_string(i) + ".jpg");
             save_image_jpg(filename.string().c_str(), h_render, max_w, max_h, 90);
             printf("Debug image saved to %s. \n", filename.string().c_str());
-            break;
         }
 
         if (i % 5 == 0) {
