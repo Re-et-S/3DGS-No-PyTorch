@@ -86,44 +86,59 @@ __device__ glm::vec3 computeColorFromSH(int idx, int deg, int max_coeffs, const 
 }
 
 // Forward version of 2D covariance matrix computation
-__device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float* cov3D, const float* viewmatrix)
+__device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y, float tan_fovx, float tan_fovy, const float* cov3D, const float* viewmatrix, int idx)
 {
-	// The following models the steps outlined by equations 29
-	// and 31 in "EWA Splatting" (Zwicker et al., 2002). 
-	// Additionally considers aspect / scaling of viewport.
-	// Transposes used to account for row-/column-major conventions.
-	float3 t = transformPoint4x3(mean, viewmatrix);
+    float3 t = transformPoint4x3(mean, viewmatrix);
 
-	const float limx = 1.3f * tan_fovx;
-	const float limy = 1.3f * tan_fovy;
-	const float txtz = t.x / t.z;
-	const float tytz = t.y / t.z;
-	t.x = min(limx, max(-limx, txtz)) * t.z;
-	t.y = min(limy, max(-limy, tytz)) * t.z;
+    const float limx = 1.3f * tan_fovx;
+    const float limy = 1.3f * tan_fovy;
+    const float txtz = t.x / t.z;
+    const float tytz = t.y / t.z;
+    t.x = min(limx, max(-limx, txtz)) * t.z;
+    t.y = min(limy, max(-limy, tytz)) * t.z;
 
-	glm::mat3 J = glm::mat3(
-		focal_x / t.z, 0.0f, -(focal_x * t.x) / (t.z * t.z),
-		0.0f, focal_y / t.z, -(focal_y * t.y) / (t.z * t.z),
-		0, 0, 0);
-    
-	glm::mat3 W = glm::mat3(
-		viewmatrix[0], viewmatrix[4], viewmatrix[8],
-		viewmatrix[1], viewmatrix[5], viewmatrix[9],
-		viewmatrix[2], viewmatrix[6], viewmatrix[10]);
+    // J Matrix (Projection Derivative)
+    float J00 = focal_x / t.z;
+    float J02 = -(focal_x * t.x) / (t.z * t.z);
+    float J11 = focal_y / t.z;
+    float J12 = -(focal_y * t.y) / (t.z * t.z);
 
-	glm::mat3 T = W * J;
+    // W Matrix (View Rotation)
+    float W00 = viewmatrix[0]; float W01 = viewmatrix[4]; float W02 = viewmatrix[8];
+    float W10 = viewmatrix[1]; float W11 = viewmatrix[5]; float W12 = viewmatrix[9];
+    float W20 = viewmatrix[2]; float W21 = viewmatrix[6]; float W22 = viewmatrix[10];
 
-	glm::mat3 Vrk = glm::mat3(
-		cov3D[0], cov3D[1], cov3D[2],
-		cov3D[1], cov3D[3], cov3D[4],
-		cov3D[2], cov3D[4], cov3D[5]);
-    
-	glm::mat3 cov = glm::transpose(T) * glm::transpose(Vrk) * T;
-    //glm::mat3 cov = (T) * (Vrk) * glm::transpose(T);
-        
-	return { float(cov[0][0]), float(cov[0][1]), float(cov[1][1]) };
+    // FIX: T = J * W (Projection * View)
+    // Row 0 of T = Row 0 of J * W
+    float T00 = J00 * W00 + J02 * W20;
+    float T01 = J00 * W01 + J02 * W21;
+    float T02 = J00 * W02 + J02 * W22;
 
+    // Row 1 of T = Row 1 of J * W
+    float T10 = J11 * W10 + J12 * W20;
+    float T11 = J11 * W11 + J12 * W21;
+    float T12 = J11 * W12 + J12 * W22;
 
+    // Load Vrk (3D Covariance)
+    float V00 = cov3D[0]; float V01 = cov3D[1]; float V02 = cov3D[2];
+                          float V11 = cov3D[3]; float V12 = cov3D[4];
+                                                float V22 = cov3D[5];
+
+    // Compute Cov2D = T * V * T^T
+    auto compute_quadratic = [&](float a, float b, float c) {
+        return a*a*V00 + b*b*V11 + c*c*V22 + 2.0f*(a*b*V01 + a*c*V02 + b*c*V12);
+    };
+
+    auto compute_bilinear = [&](float a1, float b1, float c1, float a2, float b2, float c2) {
+        return a1*a2*V00 + b1*b2*V11 + c1*c2*V22 + 
+               (a1*b2 + a2*b1)*V01 + (a1*c2 + a2*c1)*V02 + (b1*c2 + b2*c1)*V12;
+    };
+
+    float cov_x = compute_quadratic(T00, T01, T02);
+    float cov_y = compute_bilinear(T00, T01, T02, T10, T11, T12);
+    float cov_z = compute_quadratic(T10, T11, T12);
+
+    return { cov_x, cov_y, cov_z };
 }
 
 // Forward method for converting scale and rotation properties of each
@@ -131,39 +146,110 @@ __device__ float3 computeCov2D(const float3& mean, float focal_x, float focal_y,
 // of quaternion normalization.
 __device__ void computeCov3D(const glm::vec3 scale, float mod, const glm::vec4 rot, float* cov3D)
 {
-	// Create scaling matrix
-	glm::mat3 S = glm::mat3(1.0f);
-	S[0][0] = mod * expf(scale.x);
-	S[1][1] = mod * expf(scale.y);
-	S[2][2] = mod * expf(scale.z);
+// 1. Unroll Scale Matrix (Diagonal)
+    // S = diag(s.x, s.y, s.z)
+    float sx = mod * expf(scale.x);
+    float sy = mod * expf(scale.y);
+    float sz = mod * expf(scale.z);
 
-	// Normalize quaternion to get valid rotation
-	glm::vec4 q = rot;// / glm::length(rot);
-	float r = q.x;
-	float x = q.y;
-	float y = q.z;
-	float z = q.w;
+    // 2. Unroll Rotation Matrix from Quaternion
+    // Normalize q to guarantee valid rotation
+    glm::vec4 q = rot;
+    float len = sqrtf(q.x*q.x + q.y*q.y + q.z*q.z + q.w*q.w);
+    if (len > 0.0f) q /= len;
     
-	// Compute rotation matrix from quaternion
-	glm::mat3 R = glm::mat3(
-		1.f - 2.f * (y * y + z * z), 2.f * (x * y - r * z), 2.f * (x * z + r * y),
-		2.f * (x * y + r * z), 1.f - 2.f * (x * x + z * z), 2.f * (y * z - r * x),
-		2.f * (x * z - r * y), 2.f * (y * z + r * x), 1.f - 2.f * (x * x + y * y)
-	);
+    float r = q.x;
+    float x = q.y;
+    float y = q.z;
+    float z = q.w;
 
-	glm::mat3 M = S * R;
+    // R matrix elements (Row-Major for mental model, but indices matter)
+    // R00 R01 R02
+    // R10 R11 R12
+    // R20 R21 R22
+    float R00 = 1.f - 2.f * (y * y + z * z);
+    float R01 = 2.f * (x * y - r * z);
+    float R02 = 2.f * (x * z + r * y);
 
-	// Compute 3D world covariance matrix Sigma
-	glm::mat3 Sigma = glm::transpose(M) * M;
+    float R10 = 2.f * (x * y + r * z);
+    float R11 = 1.f - 2.f * (x * x + z * z);
+    float R12 = 2.f * (y * z - r * x);
 
-	// Covariance is symmetric, only store upper right
-	cov3D[0] = Sigma[0][0];
-	cov3D[1] = Sigma[0][1];
-	cov3D[2] = Sigma[0][2];
-	cov3D[3] = Sigma[1][1];
-	cov3D[4] = Sigma[1][2];
-	cov3D[5] = Sigma[2][2];
+    float R20 = 2.f * (x * z - r * y);
+    float R21 = 2.f * (y * z + r * x);
+    float R22 = 1.f - 2.f * (x * x + y * y);
 
+    // 3. Compute M = R * S (Scale then Rotate) manually
+    // Since S is diagonal, this is just scaling the columns of R
+    float M00 = R00 * sx;
+    float M01 = R01 * sy;
+    float M02 = R02 * sz;
+
+    float M10 = R10 * sx;
+    float M11 = R11 * sy;
+    float M12 = R12 * sz;
+
+    float M20 = R20 * sx;
+    float M21 = R21 * sy;
+    float M22 = R22 * sz;
+
+    // 4. Compute Covariance Sigma = M * M^T manually
+    // Sigma is symmetric, so we only compute the upper triangle (and diagonal)
+    
+    // Cov00 = Row0 . Row0
+    cov3D[0] = M00 * M00 + M01 * M01 + M02 * M02;
+    
+    // Cov01 = Row0 . Row1
+    cov3D[1] = M00 * M10 + M01 * M11 + M02 * M12;
+    
+    // Cov02 = Row0 . Row2
+    cov3D[2] = M00 * M20 + M01 * M21 + M02 * M22;
+    
+    // Cov11 = Row1 . Row1
+    cov3D[3] = M10 * M10 + M11 * M11 + M12 * M12;
+    
+    // Cov12 = Row1 . Row2
+    cov3D[4] = M10 * M20 + M11 * M21 + M12 * M22;
+    
+    // Cov22 = Row2 . Row2
+    cov3D[5] = M20 * M20 + M21 * M21 + M22 * M22;
+}
+
+__global__ void verifyCovarianceKernel(int P, const glm::vec3* scales, const glm::vec4* rotations, const float scale_modifier)
+{
+    auto idx = cg::this_grid().thread_rank();
+    if (idx >= P) return;
+
+    float cov3D[6];
+    computeCov3D(scales[idx], scale_modifier, rotations[idx], cov3D);
+
+    // Reconstruct matrix
+    // 0 1 2
+    // 1 3 4
+    // 2 4 5
+
+    // Check diagonals (Must be > 0 for non-degenerate scaling)
+    if (cov3D[0] <= 0 || cov3D[3] <= 0 || cov3D[5] <= 0) {
+        if (idx < 5) printf("ERROR Gaussian %d: Invalid Diagonals. %f %f %f\n", idx, cov3D[0], cov3D[3], cov3D[5]);
+    }
+
+    // Determinant
+    // a(ei - fh) - b(di - fg) + c(dh - eg)
+    float a = cov3D[0], b = cov3D[1], c = cov3D[2];
+    float d = cov3D[1], e = cov3D[3], f = cov3D[4];
+    float g = cov3D[2], h = cov3D[4], i = cov3D[5];
+
+    float det = a*(e*i - f*h) - b*(d*i - f*g) + c*(d*h - e*g);
+
+    if (det <= 0) {
+        if (idx < 5) printf("ERROR Gaussian %d: Invalid Determinant %f. Scales: %f %f %f. Rot: %f %f %f %f\n",
+            idx, det, scales[idx].x, scales[idx].y, scales[idx].z, rotations[idx].x, rotations[idx].y, rotations[idx].z, rotations[idx].w);
+    }
+}
+
+void FORWARD::verify_initial_covariances(int P, const glm::vec3* scales, const glm::vec4* rotations, const float scale_modifier) {
+    verifyCovarianceKernel<<<(P + 255) / 256, 256>>>(P, scales, rotations, scale_modifier);
+    cudaDeviceSynchronize();
 }
 
 // Perform initial steps for each Gaussian prior to rasterization.
@@ -230,7 +316,7 @@ __global__ void preprocessCUDA(int P, int D, int M,
 	}
 
 	// Compute 2D screen-space covariance matrix
-	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix);
+	float3 cov = computeCov2D(p_orig, focal_x, focal_y, tan_fovx, tan_fovy, cov3D, viewmatrix, idx);
 
 	constexpr float h_var = 0.3f;
 	const float det_cov = cov.x * cov.z - cov.y * cov.y;
@@ -286,7 +372,6 @@ __global__ void preprocessCUDA(int P, int D, int M,
 
 
 	conic_opacity[idx] = { conic.x, conic.y, conic.z, opacity * h_convolution_scaling };
-
 
 	tiles_touched[idx] = (rect_max.y - rect_min.y) * (rect_max.x - rect_min.x);
 }

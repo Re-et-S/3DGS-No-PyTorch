@@ -39,7 +39,7 @@ namespace BACKWARD
 
 	void preprocess(
 		int P, int D, int M,
-		const float3* means,
+		const float* means,
 		const int* radii,
         const float* dc,
 		const float* shs,
@@ -57,7 +57,7 @@ namespace BACKWARD
 		const float2* dL_dmean2D,
 		const float4* dL_dconics,
         float* dL_dopacity,
-		glm::vec3* dL_dmeans,
+		float* dL_dmeans,
 		float* dL_dcolor,
 		float* dL_dcov3D,
         float* dL_ddc,

@@ -122,6 +122,7 @@ __global__ void identifyTileRanges(int L, uint64_t* point_list_keys, uint2* rang
 	// Read tile ID from key. Update start/end of tile range if at limit.
 	uint64_t key = point_list_keys[idx];
 	uint32_t currtile = key >> 32;
+
 	if (idx == 0)
 		ranges[currtile].x = 0;
 	else
@@ -429,7 +430,7 @@ void CudaRasterizer::Rasterizer::backward(
 	// use the one we computed ourselves.
 	const float* cov3D_ptr = (cov3D_precomp != nullptr) ? cov3D_precomp : geomState.cov3D;
 	CHECK_CUDA(BACKWARD::preprocess(P, D, M,
-		(float3*)means3D,
+		means3D,
 		radii,
         dc,
 		shs,
@@ -447,7 +448,7 @@ void CudaRasterizer::Rasterizer::backward(
 		dL_dmean2D,
 		dL_dconic,
 		dL_dopacity,
-		(glm::vec3*)dL_dmean3D,
+		dL_dmean3D,
 		dL_dcolor,
 		dL_dcov3D,
         dL_ddc,

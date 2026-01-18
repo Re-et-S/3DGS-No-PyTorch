@@ -20,7 +20,7 @@ void adamUpdateCUDA(
     const uint32_t N,
     const uint32_t M) {
 
-	auto p_idx = cg::this_grid().thread_rank();
+	int p_idx = blockIdx.x * blockDim.x + threadIdx.x;
     const uint32_t g_idx = p_idx / M;
     if (g_idx >= N) return;
     if (tiles_touched[g_idx]>0) {

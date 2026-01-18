@@ -8,14 +8,106 @@
 #include "ImageIO.h"
 #include "plyIO.h"
 #include "config.h"
+#include "forward.cuh"
+#include "debug_utils.cuh"
 
 #include <filesystem>
 #include <random>
 
 namespace fs = std::filesystem;
 
+__global__ void alignmentCheckKernel(float* float_ptr) {
+    // Cast the float pointer to a vec3 pointer, just like your code does
+    glm::vec3* vec3_ptr = reinterpret_cast<glm::vec3*>(float_ptr);
+
+    printf("=== Alignment Verification ===\n");
+    printf("Size of float:      %lu bytes\n", sizeof(float));
+    printf("Size of glm::vec3:  %lu bytes\n", sizeof(glm::vec3));
+
+    // Check offsets for index 0 and index 1
+    // We expect index 1 to start at byte 12 (3 * 4 bytes)
+    size_t addr_float_0 = (size_t)&float_ptr[0];
+    size_t addr_float_3 = (size_t)&float_ptr[3]; // The start of the 2nd vector
+
+    size_t addr_vec3_0  = (size_t)&vec3_ptr[0];
+    size_t addr_vec3_1  = (size_t)&vec3_ptr[1]; // The start of the 2nd vector according to glm::vec3*
+
+    printf("Address float[0]:   %llu\n", (unsigned long long)addr_float_0);
+    printf("Address float[3]:   %llu (Expected start of 2nd vector)\n", (unsigned long long)addr_float_3);
+    printf("Address vec3[1]:    %llu (Actual start of 2nd vector)\n", (unsigned long long)addr_vec3_1);
+
+    long long stride_float = (long long)addr_float_3 - (long long)addr_float_0;
+    long long stride_vec3  = (long long)addr_vec3_1 - (long long)addr_vec3_0;
+
+    printf("Stride (float*3):   %lld bytes\n", stride_float);
+    printf("Stride (vec3*):     %lld bytes\n", stride_vec3);
+
+    if (stride_float != stride_vec3) {
+        printf("\nCRITICAL FAILURE: Mismatch detected! Your pointers are drifting.\n");
+        printf("Thread 1 reads from byte %lld, but data is at byte %lld.\n", stride_vec3, stride_float);
+    } else {
+        printf("\nAlignment is OK.\n");
+    }
+}
+
+__global__ void debug_glm_ops() {
+    printf("=== GLM Debug Unit Test ===\n");
+
+    // 1. Setup Test Data (Identity Rotation, Simple Scale)
+    glm::vec3 scale(1.0f, 2.0f, 3.0f); // exp(1)=2.71, exp(2)=7.38, exp(3)=20.08
+    float mod = 1.0f;
+    
+    // 2. Construct Matrix S (Scale)
+    glm::mat3 S(1.0f);
+    S[0][0] = mod * expf(scale.x);
+    S[1][1] = mod * expf(scale.y);
+    S[2][2] = mod * expf(scale.z);
+
+    // 3. Construct Matrix R (Identity for simplicity)
+    glm::mat3 R(1.0f);
+
+    // 4. Perform Multiplication (The suspect)
+    glm::mat3 M = S * R;
+    // Note: GLM is Column-Major. 
+    // If S*R works, M[0][0] should be S[0][0].
+
+    printf("Input Scale X: %f -> Matrix S[0][0]: %f\n", scale.x, S[0][0]);
+    printf("Multiplication Result M[0][0]: %f\n", M[0][0]);
+
+    // 5. Test Transpose & Covariance
+    // Your original code did: transpose(M) * M
+    glm::mat3 Sigma_Old = glm::transpose(M) * M;
+    
+    // Standard 3DGS Math: M * transpose(M) (assuming M=RS) or similar
+    glm::mat3 Sigma_New = M * glm::transpose(M);
+
+    printf("Sigma_Old [0][0]: %f\n", Sigma_Old[0][0]);
+    printf("Sigma_New [0][0]: %f\n", Sigma_New[0][0]);
+
+    // 6. Memory Layout Check (Did the compiler pad the struct?)
+    printf("Size of glm::mat3: %lu bytes (Expected 36)\n", sizeof(glm::mat3));
+    
+    // 7. Pointer Arithmetic Check
+    // Create an array and see if stride matches size
+    glm::mat3 array[2];
+    size_t addr0 = (size_t)&array[0];
+    size_t addr1 = (size_t)&array[1];
+    printf("Array Stride: %lu bytes\n", addr1 - addr0);
+
+    if (sizeof(glm::mat3) != 36 || (addr1 - addr0) != 36) {
+        printf("CRITICAL: Alignment mismatch detected!\n");
+    } else {
+        printf("Alignment matches packed floats.\n");
+    }
+}
+
 int main(int argc, char** argv) {
     
+    CudaBuffer<float> d_align_check(12);
+    alignmentCheckKernel<<<1, 1>>>(d_align_check.get());
+    debug_glm_ops<<<1, 1>>>();
+    cudaDeviceSynchronize();
+
     // 0. Argument Parsing & Setup
     GaussianSplatting::TrainingConfig config;
     
@@ -126,6 +218,16 @@ int main(int argc, char** argv) {
     // Calculate scene extent for densification thresholds
     float scene_extent = compute_scene_extent(h_points);
     printf("Scene Extent: %f\n", scene_extent);
+
+    // Verify Covariance Initialization (Debug for CUDA 13.1 issue)
+    printf("Verifying Initial Covariances...\n");
+    FORWARD::verify_initial_covariances(
+        scene.count,
+        scene.d_scales.get(),
+        scene.d_rotations.get(),
+        1.0f // scale_modifier
+    );
+    printf("Verification complete.\n");
     
     // 3. Initialize trainer and optimizer
     Optimizer optimizer(P, M);
@@ -194,6 +296,24 @@ int main(int argc, char** argv) {
 
         // Train Step
         double loss = trainer.train_step(*item.view, d_gt_image, active_sh_degree);
+
+        // Debug: Check for NaNs
+        // checkNans(
+        //     scene.count,
+        //     grads.d_dL_dpoints.get(),
+        //     grads.d_dL_dcov3Ds.get(),
+        //     grads.d_dL_dshs.get(),
+        //     grads.d_dL_dopacities.get(),
+        //     grads.d_dL_dscales.get(),
+        //     grads.d_dL_drotations.get()
+        // );
+
+        if (i == start_iteration) {
+            trainer.get_current_render(h_render);
+            fs::path filename = renders_dir / ("debug_step_" + std::to_string(i) + ".jpg");
+            save_image_jpg(filename.string().c_str(), h_render, max_w, max_h, 90);
+            printf("Debug image saved to %s. \n", filename.string().c_str());
+        }
 
         if (i % 5 == 0) {
             printf("Step %d | Loss: %f | Gaussians: %lu\n", i, loss, scene.count);
