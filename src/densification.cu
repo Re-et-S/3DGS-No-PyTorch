@@ -6,7 +6,7 @@
 #include <cfloat>
 #include "cuda_buffer.cuh"
 #include "densification.cuh"
-#include <cstdio> // For printf
+#include <cstdio> 
 #include <iostream>
 #include <cub/cub.cuh>
 
@@ -22,7 +22,7 @@ __device__ float3 sample_standard_normal(curandState& state) {
     // Box-Muller for x and y
     float u1 = curand_uniform(&state);
     float u2 = curand_uniform(&state);
-    float radius = sqrtf(-2.0f * logf(u1 + 1e-6f)); // Add epsilon to avoid log(0)
+    float radius = sqrtf(-2.0f * logf(u1 + 1e-6f));
     float theta = 2.0f * 3.14159265f * u2;
     z.x = radius * cosf(theta);
     z.y = radius * sinf(theta);
@@ -66,8 +66,6 @@ __global__ void accumulate_gradients_kernel(
     }
 }
 
-// Helper Kernel: Compute per-Gaussian average gradient (accum / denom)
-// Output to a temporary buffer for reduction
 __global__ void normalize_gradients_kernel(
     int P,
     const float* accum,
@@ -232,7 +230,6 @@ __global__ void count_decisions_kernel(int P, const int* decisions, int* global_
     }
 }
 
-// Helper: Copy a parameter (scalar or vector) from src[old_idx] to dst[new_idx]
 template <typename T>
 __device__ void copy_param(
     const T* __restrict__ src, 
@@ -243,7 +240,6 @@ __device__ void copy_param(
     dst[new_idx] = src[old_idx];
 }
 
-// Helper: Copy and Duplicate (for Clone/Split)
 template <typename T>
 __device__ void duplicate_param(
     const T* __restrict__ src, 
@@ -257,8 +253,6 @@ __device__ void duplicate_param(
     dst[new_idx_2] = val;
 }
 
-// Helper to copy strided arrays
-// This copies `count` elements of type T starting at `base_idx * stride`
 template <typename T>
 __device__ void copy_strided_param(
     const T* __restrict__ src,
@@ -641,7 +635,6 @@ void prune(
     CUDA_CHECK(cudaDeviceSynchronize());
 }
 
-// Helper to init the states (call this once in Trainer constructor)
 void init_random_states(curandState* states, int n, unsigned long long seed) {
     int block_size = 256;
     int grid_size = (n + block_size - 1) / block_size;

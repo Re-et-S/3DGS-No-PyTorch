@@ -10,27 +10,19 @@
 void draw_circle(unsigned char* img, int width, int height, int cx, int cy, int radius) {
     int r2 = radius * radius;
     
-    // 1. Clamp vertical range to image bounds
     int y_min = std::max(0, cy - radius);
     int y_max = std::min(height - 1, cy + radius);
 
-    // 2. Iterate only over the valid rows
     for (int y = y_min; y <= y_max; ++y) {
         int dy = y - cy;
         
-        // Calculate the span width for this specific row
-        // Pythagorean theorem: x = sqrt(r^2 - y^2)
         int half_width = static_cast<int>(std::sqrt(r2 - dy * dy));
         
-        // Clamp horizontal range to image bounds
         int x_min = std::max(0, cx - half_width);
         int x_max = std::min(width - 1, cx + half_width);
 
-        // 3. Optimization: Compute the starting memory address for this span
-        // Format is RGB (3 bytes per pixel)
         unsigned char* ptr = img + (y * width + x_min) * 3;
 
-        // 4. Fill the span (No branching inside this tight loop)
         for (int x = x_min; x <= x_max; ++x) {
             ptr[0] = 255; // R
             ptr[1] = 0;   // G
@@ -124,22 +116,18 @@ void ColmapLoader::buildTrainingViews(float znear, float zfar) {
   training_views_.clear();
   training_views_.reserve(images_.size());
 
-  // Cache to avoid re-calculating scale for the same camera ID repeatedly
   std::map<uint32_t, float> camera_scale_map;
 
   for (const auto &[image_id, img] : images_) {
     if (cameras_.find(img.camera_id) == cameras_.end()) {
-      continue; // Skip image if camera not found
+      continue; 
     }
-    // const ColmapCamera &cam = cameras_.at(img.camera_id);
+    
     const ColmapCamera &raw_cam = cameras_.at(img.camera_id);
 
-    // 1. Determine the scale factor if we haven't for this camera yet
     if (camera_scale_map.find(img.camera_id) == camera_scale_map.end()) {
         std::string full_path = image_path_ + img.name;
         
-        // REPLACED OpenCV with stbi_info
-        // stbi_info reads only the header to get dimensions (fast)
         int w, h, comp;
         int ok = stbi_info(full_path.c_str(), &w, &h, &comp);
 
@@ -147,7 +135,6 @@ void ColmapLoader::buildTrainingViews(float znear, float zfar) {
             float scale_x = (float)w / (float)raw_cam.width;
             camera_scale_map[img.camera_id] = scale_x;
         } else {
-            // Fallback if image missing or unreadable
             std::cerr << "Warning: Could not read image header for " << full_path << ". Assuming scale 1.0." << std::endl;
             camera_scale_map[img.camera_id] = 1.0f;
         }
@@ -155,15 +142,11 @@ void ColmapLoader::buildTrainingViews(float znear, float zfar) {
     
     float scale_factor = camera_scale_map[img.camera_id];
     
-    // 2. Create a "Scaled" Camera struct to perform calculations
     ColmapCamera scaled_cam = raw_cam;
     
-    // Scale Dimensions
     scaled_cam.width = (uint64_t)(std::round(raw_cam.width * scale_factor));
     scaled_cam.height = (uint64_t)(std::round(raw_cam.height * scale_factor));
 
-    // Scale Intrinsics (Focal Length, Cx, Cy) based on Model ID
-    // See ColmapCamera::read or buildProjectionMatrix for index mapping
     if (scaled_cam.model_id == 0 || scaled_cam.model_id == 2) { 
         // SIMPLE_PINHOLE / SIMPLE_RADIAL: [f, cx, cy, ...]
         scaled_cam.params[0] *= scale_factor; // f
@@ -183,12 +166,10 @@ void ColmapLoader::buildTrainingViews(float znear, float zfar) {
     view.width = (int)scaled_cam.width;
     view.height = (int)scaled_cam.height;
 
-    // Build matrices
     view.view_matrix = buildViewMatrix(img);
     view.projection_matrix = buildProjectionMatrix(scaled_cam, znear, zfar);
     view.view_proj_matrix = view.projection_matrix * view.view_matrix;
 
-    // Get camera center (world space)
     view.camera_center = getCameraCenter(img);
     
     view.fxfy_tanfov = getFxFyTanFov(scaled_cam);
@@ -229,11 +210,9 @@ void ColmapLoader::visualize(uint32_t image_id, const std::string& output_file) 
     const ColmapImage& image_to_vis = images_.at(image_id);
     const ColmapCamera& cam = cameras_.at(image_to_vis.camera_id);
 
-    // 1. Load Image using stb_image
     std::string full_path = image_path_ + image_to_vis.name;
     int width, height, channels;
     
-    // Force 3 channels (RGB)
     unsigned char* img_data = stbi_load(full_path.c_str(), &width, &height, &channels, 3);
     
     if (!img_data) {
@@ -241,32 +220,26 @@ void ColmapLoader::visualize(uint32_t image_id, const std::string& output_file) 
         return;
     }
   
-    // 2. Build Matrices (using private helpers)
     glm::mat4 view_mat = buildViewMatrix(image_to_vis);
     glm::mat4 proj_mat = buildProjectionMatrix(cam, 0.01f, 100.0f);
     glm::mat4 vp_mat = proj_mat * view_mat;
 
-    // 3. Project and Draw
     for (const auto& pt : points_) {
         glm::vec4 p_world(pt.xyz[0], pt.xyz[1], pt.xyz[2], 1.0f);
         glm::vec4 p_clip = vp_mat * p_world;
 
-        // Clip points behind camera
         if (p_clip.w < 0.01f) continue;
 
         glm::vec3 p_ndc = glm::vec3(p_clip) / p_clip.w;
         
-        // Convert NDC (-1 to 1) to Pixel Coordinates
         float u = (p_ndc.x + 1.0f) * 0.5f * width;
         float v = (p_ndc.y + 1.0f) * 0.5f * height;
 
-        // Bounds check (Basic filter before calling rasterizer)
         if (u >= -5 && u < width+5 && v >= -5 && v < height+5) {
              draw_circle(img_data, width, height, (int)u, (int)v, 2);
         }
     }
 
-    // 4. Save Image using stb_image_write
     int success = stbi_write_jpg(output_file.c_str(), width, height, 3, img_data, 95);
     
     if (success) {
@@ -275,7 +248,6 @@ void ColmapLoader::visualize(uint32_t image_id, const std::string& output_file) 
         std::cerr << "Failed to write output image to " << output_file << std::endl;
     }
 
-    // 5. Cleanup
     stbi_image_free(img_data);
 }
 
@@ -318,17 +290,14 @@ glm::mat4 ColmapLoader::buildProjectionMatrix(const ColmapCamera& camera, float 
                 fy = (float)camera.params[0]; // f (focal length) is shared
                 cx = (float)camera.params[1];
                 cy = (float)camera.params[2];
-                // Distortion param camera.params[3] (k) is ignored
                 break;
             case 3: // RADIAL (f, cx, cy, k1, k2)
                 fx = (float)camera.params[0];
                 fy = (float)camera.params[0]; // f (focal length) is shared
                 cx = (float)camera.params[1];
                 cy = (float)camera.params[2];
-                // Distortion params camera.params[3] (k1) and camera.params[4] (k2) are ignored
                 break;
             default:
-                // This case should be caught by the reader, but added for safety.
                 throw std::runtime_error("Error: Unsupported camera model for projection: " + std::to_string(camera.model_id));
         }
 

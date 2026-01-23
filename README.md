@@ -1,6 +1,6 @@
 # Minimal 3D Gaussian Splatting without pytorch
 
-This is a personal learning project replicating [vanilla 3D Gaussian](https://github.com/graphdeco-inria/gaussian-splatting) without using pytorch. Most of the work is in CUDA buffer manual management and implementing the densification logic. Minimal changes to forward and backward codes. 
+This is a personal learning project replicating [vanilla 3D Gaussian splatting](https://github.com/graphdeco-inria/gaussian-splatting) without using pytorch. Most of the work is in CUDA buffer manual management and implementing the densification logic. Minimal changes to forward and backward codes. A lightweight viewer gui is also implemented partially. Forward and backward pass are updated to work with CUDA 13. 
 
 ## Building the project
 
@@ -12,7 +12,7 @@ cd build
 # Configure 
 cmake ..
 
-# Build the 'train_app' executable, parallel compilation
+# Build the 'train_app' 'view_app' executable, parallel compilation
 make -j8
 ```
 
@@ -37,3 +37,5 @@ Run train_app on command line with the following example. The code will periodic
 [fused_ssim](https://github.com/rahul-goel/fused-ssim) for calculating ssim loss
 
 [stb_image](https://github.com/nothings/stb) for image IO
+
+[imgui](https://github.com/ocornut/imgui) for viewer gui
